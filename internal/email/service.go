@@ -21,17 +21,17 @@ func NewService(repo *Repository, orgRepo *organization.Repository) *Service {
 }
 
 type WebhookPayload struct {
-	From        string              `json:"from"`
-	Subject     string              `json:"subject"`
-	Body        string              `json:"body"`
+	From        string              `json:"from" example:"sender@company.com" format:"email"`
+	Subject     string              `json:"subject" example:"Contract Review Meeting"`
+	Body        string              `json:"body" example:"We need to review the updated contract terms..."`
 	Attachments []AttachmentPayload `json:"attachments,omitempty"`
 }
 
 type AttachmentPayload struct {
-	Filename    string `json:"filename"`
-	ContentType string `json:"content_type"`
-	Size        int64  `json:"size"`
-	URL         string `json:"url"`
+	Filename    string `json:"filename" example:"contract.pdf"`
+	ContentType string `json:"content_type" example:"application/pdf"`
+	Size        int64  `json:"size" example:"102400"`
+	URL         string `json:"url" example:"https://storage.example.com/contract.pdf"`
 }
 
 type WebhookResult struct {

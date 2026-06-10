@@ -12,9 +12,9 @@ import (
 )
 
 type EventDetailHandler struct {
-	eventRepo     *Repository
-	analysisRepo  *ai.Repository
-	actionsRepo   *actions.Repository
+	eventRepo    *Repository
+	analysisRepo *ai.Repository
+	actionsRepo  *actions.Repository
 }
 
 func NewEventDetailHandler(eventRepo *Repository, analysisRepo *ai.Repository, actionsRepo *actions.Repository) *EventDetailHandler {
@@ -25,6 +25,16 @@ func NewEventDetailHandler(eventRepo *Repository, analysisRepo *ai.Repository, a
 	}
 }
 
+// GetWithDetails godoc
+// @Summary      Get event with analysis and logs
+// @Description  Get a single event with its associated AI analysis and action logs.
+// @Tags         Events
+// @Produce      json
+// @Param        id   path  string  true  "Event ID"
+// @Success      200  {object}  object{event=object,analysis=object,action_logs=array}
+// @Failure      404  {object}  object{error=string,message=string}
+// @Security     Bearer
+// @Router       /events/{id} [get]
 func (h *EventDetailHandler) GetWithDetails(c *gin.Context) {
 	orgID := c.GetString("org_id")
 	id := c.Param("id")
@@ -61,6 +71,16 @@ func (h *EventDetailHandler) GetWithDetails(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+// GetAnalysis godoc
+// @Summary      Get AI analysis for event
+// @Description  Get the AI analysis (intent, confidence, actions) for a specific event.
+// @Tags         Events
+// @Produce      json
+// @Param        id   path  string  true  "Event ID"
+// @Success      200  {object}  object{id=string,event_id=string,intent=string,confidence=number,actions=array}
+// @Failure      404  {object}  object{error=string,message=string}
+// @Security     Bearer
+// @Router       /events/{id}/analysis [get]
 func (h *EventDetailHandler) GetAnalysis(c *gin.Context) {
 	orgID := c.GetString("org_id")
 	id := c.Param("id")
@@ -74,6 +94,17 @@ func (h *EventDetailHandler) GetAnalysis(c *gin.Context) {
 	c.JSON(http.StatusOK, analysis)
 }
 
+// GetLogs godoc
+// @Summary      Get action logs for event
+// @Description  Get action execution logs (one entry per action) for a specific event.
+// @Tags         Events
+// @Produce      json
+// @Param        id        path  string  true  "Event ID"
+// @Param        page      query  int     false  "Page number (default 1)"
+// @Param        per_page  query  int     false  "Items per page (default 20)"
+// @Success      200       {object}  object{data=array,total=int,page=int,per_page=int}
+// @Security     Bearer
+// @Router       /events/{id}/logs [get]
 func (h *EventDetailHandler) GetLogs(c *gin.Context) {
 	orgID := c.GetString("org_id")
 	eventID := c.Param("id")
@@ -100,6 +131,15 @@ func (h *EventDetailHandler) GetLogs(c *gin.Context) {
 	})
 }
 
+// GetCalendarEvents godoc
+// @Summary      Get calendar events for event
+// @Description  List calendar events created from an event (data sourced from action logs).
+// @Tags         Events
+// @Produce      json
+// @Param        id   path  string  true  "Event ID"
+// @Success      200  {object}  object{data=[]object,total=int,page=int,per_page=int}
+// @Security     Bearer
+// @Router       /events/{id}/calendar-events [get]
 func (h *EventDetailHandler) GetCalendarEvents(c *gin.Context) {
 	orgID := c.GetString("org_id")
 	eventID := c.Param("id")

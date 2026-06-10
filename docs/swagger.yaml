@@ -1,0 +1,1200 @@
+basePath: /api/v1
+definitions:
+  github_com_nurik_Dev_repos_mengu-backend_internal_email.AttachmentPayload:
+    properties:
+      content_type:
+        example: application/pdf
+        type: string
+      filename:
+        example: contract.pdf
+        type: string
+      size:
+        example: 102400
+        type: integer
+      url:
+        example: https://storage.example.com/contract.pdf
+        type: string
+    type: object
+  github_com_nurik_Dev_repos_mengu-backend_internal_email.WebhookPayload:
+    properties:
+      attachments:
+        items:
+          $ref: '#/definitions/github_com_nurik_Dev_repos_mengu-backend_internal_email.AttachmentPayload'
+        type: array
+      body:
+        example: We need to review the updated contract terms...
+        type: string
+      from:
+        example: sender@company.com
+        format: email
+        type: string
+      subject:
+        example: Contract Review Meeting
+        type: string
+    type: object
+  internal_documents.documentListItem:
+    properties:
+      analyzed_at:
+        example: "2026-06-10T12:03:00Z"
+        type: string
+      file_name:
+        example: contract.pdf
+        type: string
+      id:
+        example: doc_001
+        format: uuid
+        type: string
+      risks:
+        example: 3
+        type: integer
+      summary:
+        example: Analyzed legal document
+        type: string
+    type: object
+  internal_drafts.draftListItem:
+    properties:
+      created_at:
+        example: "2026-06-10T12:03:00Z"
+        type: string
+      event_id:
+        example: evt_001
+        format: uuid
+        type: string
+      id:
+        example: draft_001
+        format: uuid
+        type: string
+      recipient:
+        example: partner@company.com
+        type: string
+      status:
+        enum:
+        - pending_review
+        - approved
+        - sent
+        example: pending_review
+        type: string
+      subject:
+        example: Meeting Confirmation
+        type: string
+    type: object
+  internal_email.eventListItem:
+    properties:
+      created_at:
+        example: "2026-06-10T12:00:00Z"
+        type: string
+      id:
+        example: evt_001
+        type: string
+      sender:
+        example: partner@company.com
+        type: string
+      source:
+        example: email
+        type: string
+      status:
+        example: completed
+        type: string
+      subject:
+        example: Contract Review Meeting
+        type: string
+    type: object
+  internal_gmail.WatchRequest:
+    properties:
+      email_address:
+        example: user@company.com
+        format: email
+        type: string
+    type: object
+  internal_gmail.WatchResponse:
+    properties:
+      email_address:
+        example: user@company.com
+        type: string
+      expires_at:
+        example: "2026-06-17T15:26:00Z"
+        type: string
+      status:
+        example: watch_started
+        type: string
+    type: object
+  internal_gmail.pubSubPushBody:
+    properties:
+      message:
+        properties:
+          attributes:
+            additionalProperties:
+              type: string
+            type: object
+          data:
+            type: string
+          messageId:
+            type: string
+        type: object
+      subscription:
+        type: string
+    type: object
+  internal_tasks.taskListItem:
+    properties:
+      assignee_id:
+        example: user_001
+        type: string
+      created_at:
+        example: "2026-06-10T12:02:00Z"
+        type: string
+      description:
+        example: Review the updated contract terms from partner
+        type: string
+      due_date:
+        example: "2026-06-17T00:00:00Z"
+        type: string
+      id:
+        example: task_001
+        type: string
+      status:
+        enum:
+        - pending
+        - in_progress
+        - completed
+        - cancelled
+        example: pending
+        type: string
+      title:
+        example: Prepare contract review
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact:
+    email: support@mengu.ai
+    name: API Support
+  description: AI-assisted email automation platform. Ingests emails, analyzes them
+    with LLM to extract intent and actions, then executes actions through deterministic
+    handlers.
+  license:
+    name: Proprietary
+  termsOfService: https://mengu.ai/terms
+  title: Mengu AI API
+  version: 1.0.0
+paths:
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Authenticate user via email and password. Returns JWT access and
+        refresh tokens.
+      parameters:
+      - description: Login credentials
+        in: body
+        name: request
+        required: true
+        schema:
+          properties:
+            email:
+              type: string
+            password:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              access_token:
+                type: string
+              expires_in:
+                type: integer
+              refresh_token:
+                type: string
+              token_type:
+                type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+            type: object
+      summary: Authenticate user
+      tags:
+      - Authentication
+  /auth/oauth/google:
+    post:
+      consumes:
+      - application/json
+      description: Authenticate or register via Google OAuth2 authorization code.
+      parameters:
+      - description: Google OAuth authorization code
+        in: body
+        name: request
+        required: true
+        schema:
+          properties:
+            code:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              access_token:
+                type: string
+              expires_in:
+                type: integer
+              refresh_token:
+                type: string
+              token_type:
+                type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+            type: object
+      summary: Google OAuth login
+      tags:
+      - Authentication
+  /auth/oauth/microsoft:
+    post:
+      consumes:
+      - application/json
+      description: Authenticate or register via Microsoft OAuth2 authorization code.
+      parameters:
+      - description: Microsoft OAuth authorization code
+        in: body
+        name: request
+        required: true
+        schema:
+          properties:
+            code:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              access_token:
+                type: string
+              expires_in:
+                type: integer
+              refresh_token:
+                type: string
+              token_type:
+                type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+            type: object
+      summary: Microsoft OAuth login
+      tags:
+      - Authentication
+  /auth/refresh:
+    post:
+      consumes:
+      - application/json
+      description: Exchange a valid refresh token for a new access/refresh token pair.
+      parameters:
+      - description: Refresh token
+        in: body
+        name: request
+        required: true
+        schema:
+          properties:
+            refresh_token:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              access_token:
+                type: string
+              expires_in:
+                type: integer
+              refresh_token:
+                type: string
+              token_type:
+                type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+            type: object
+      summary: Refresh access token
+      tags:
+      - Authentication
+  /drafts/{id}:
+    get:
+      description: Get a single email draft with full body content.
+      parameters:
+      - description: Draft ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              body:
+                type: string
+              created_at:
+                type: string
+              event_id:
+                type: string
+              id:
+                type: string
+              recipient:
+                type: string
+              status:
+                type: string
+              subject:
+                type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Get email draft
+      tags:
+      - Drafts
+    patch:
+      consumes:
+      - application/json
+      description: Edit an email draft's recipient, subject, or body before approval/sending.
+      parameters:
+      - description: Draft ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Draft update fields
+        in: body
+        name: request
+        required: true
+        schema:
+          properties:
+            body:
+              type: string
+            recipient:
+              type: string
+            subject:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              id:
+                type: string
+              recipient:
+                type: string
+              subject:
+                type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Update email draft
+      tags:
+      - Drafts
+  /drafts/{id}/approve:
+    post:
+      consumes:
+      - application/json
+      description: Approve a pending email draft and trigger sending.
+      parameters:
+      - description: Draft ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              id:
+                type: string
+              status:
+                type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Approve and send email draft
+      tags:
+      - Drafts
+  /events:
+    get:
+      consumes:
+      - application/json
+      description: List incoming events for the authenticated user's organization.
+      parameters:
+      - description: Filter by status (new, processing, completed, failed)
+        in: query
+        name: status
+        type: string
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Items per page (default 20)
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              data:
+                items:
+                  $ref: '#/definitions/internal_email.eventListItem'
+                type: array
+              page:
+                type: integer
+              per_page:
+                type: integer
+              total:
+                type: integer
+            type: object
+      security:
+      - Bearer: []
+      summary: List events
+      tags:
+      - Events
+  /events/{id}:
+    get:
+      description: Get a single event by ID (without analysis/logs nesting — use GET
+        /events/:id for the full detail view).
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              id:
+                type: string
+              metadata:
+                type: object
+              source:
+                type: string
+              status:
+                type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Get event
+      tags:
+      - Events
+  /events/{id}/analysis:
+    get:
+      description: Get the AI analysis (intent, confidence, actions) for a specific
+        event.
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              actions:
+                type: array
+              confidence:
+                type: number
+              event_id:
+                type: string
+              id:
+                type: string
+              intent:
+                type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Get AI analysis for event
+      tags:
+      - Events
+  /events/{id}/calendar-events:
+    get:
+      description: List calendar events created from an event (data sourced from action
+        logs).
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              data:
+                items:
+                  type: object
+                type: array
+              page:
+                type: integer
+              per_page:
+                type: integer
+              total:
+                type: integer
+            type: object
+      security:
+      - Bearer: []
+      summary: Get calendar events for event
+      tags:
+      - Events
+  /events/{id}/documents:
+    get:
+      consumes:
+      - application/json
+      description: List AI-analyzed documents associated with a specific event.
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Items per page (default 20)
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              data:
+                items:
+                  $ref: '#/definitions/internal_documents.documentListItem'
+                type: array
+              page:
+                type: integer
+              per_page:
+                type: integer
+              total:
+                type: integer
+            type: object
+      security:
+      - Bearer: []
+      summary: List analyzed documents for event
+      tags:
+      - Documents
+  /events/{id}/drafts:
+    get:
+      consumes:
+      - application/json
+      description: List AI-generated email drafts associated with a specific event.
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Filter by status (pending_review, approved, sent)
+        in: query
+        name: status
+        type: string
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Items per page (default 20)
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              data:
+                items:
+                  $ref: '#/definitions/internal_drafts.draftListItem'
+                type: array
+              page:
+                type: integer
+              per_page:
+                type: integer
+              total:
+                type: integer
+            type: object
+      security:
+      - Bearer: []
+      summary: List email drafts for event
+      tags:
+      - Drafts
+  /events/{id}/logs:
+    get:
+      description: Get action execution logs (one entry per action) for a specific
+        event.
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Items per page (default 20)
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              data:
+                type: array
+              page:
+                type: integer
+              per_page:
+                type: integer
+              total:
+                type: integer
+            type: object
+      security:
+      - Bearer: []
+      summary: Get action logs for event
+      tags:
+      - Events
+  /events/{id}/reanalyze:
+    post:
+      consumes:
+      - application/json
+      description: Reset event status to 'new' so the worker re-processes it through
+        AI analysis and action execution.
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              status:
+                type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Re-analyze event
+      tags:
+      - Events
+  /gmail/watch:
+    post:
+      consumes:
+      - application/json
+      description: Initiates Gmail API watch for the authenticated user's organization
+        — subscribes to mailbox push notifications (requires prior Google OAuth consent).
+      parameters:
+      - description: Email address to watch
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_gmail.WatchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_gmail.WatchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Start Gmail watch
+      tags:
+      - Gmail
+  /organization:
+    get:
+      consumes:
+      - application/json
+      description: Get the authenticated user's organization details.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              created_at:
+                type: string
+              id:
+                type: string
+              name:
+                type: string
+              plan:
+                type: string
+              slug:
+                type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Get organization
+      tags:
+      - Organization
+    patch:
+      consumes:
+      - application/json
+      description: Update organization settings (name, plan).
+      parameters:
+      - description: Organization update fields
+        in: body
+        name: request
+        required: true
+        schema:
+          properties:
+            name:
+              type: string
+            plan:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              created_at:
+                type: string
+              id:
+                type: string
+              name:
+                type: string
+              plan:
+                type: string
+              slug:
+                type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Update organization
+      tags:
+      - Organization
+  /tasks:
+    get:
+      consumes:
+      - application/json
+      description: List tasks for the authenticated user's organization with optional
+        status filter.
+      parameters:
+      - description: Filter by status (pending, in_progress, completed, cancelled)
+        in: query
+        name: status
+        type: string
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Items per page (default 20)
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              data:
+                items:
+                  $ref: '#/definitions/internal_tasks.taskListItem'
+                type: array
+              page:
+                type: integer
+              per_page:
+                type: integer
+              total:
+                type: integer
+            type: object
+      security:
+      - Bearer: []
+      summary: List tasks
+      tags:
+      - Tasks
+  /tasks/{id}:
+    get:
+      description: Get a single task by ID.
+      parameters:
+      - description: Task ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              description:
+                type: string
+              due_date:
+                type: string
+              id:
+                type: string
+              status:
+                type: string
+              title:
+                type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Get task
+      tags:
+      - Tasks
+    patch:
+      consumes:
+      - application/json
+      description: Update a task's status or assignee.
+      parameters:
+      - description: Task ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: request
+        required: true
+        schema:
+          properties:
+            assignee_id:
+              type: string
+            status:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              id:
+                type: string
+              status:
+                type: string
+              title:
+                type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Update task
+      tags:
+      - Tasks
+  /webhooks/email:
+    post:
+      consumes:
+      - application/json
+      description: Receive incoming email from external email service. Looks up organization
+        by X-Webhook-Secret and stores as incoming_event.
+      parameters:
+      - description: Organization webhook secret
+        in: header
+        name: X-Webhook-Secret
+        required: true
+        type: string
+      - description: Email payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_nurik_Dev_repos_mengu-backend_internal_email.WebhookPayload'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            properties:
+              event_id:
+                type: string
+              status:
+                type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+            type: object
+      security:
+      - WebhookSecret: []
+      summary: Ingest email via webhook
+      tags:
+      - Webhooks
+  /webhooks/gmail:
+    post:
+      consumes:
+      - application/json
+      description: 'Receives Pub/Sub push notifications from Google for Gmail mailbox
+        changes (new email, label changes). Idempotent: responds 200 immediately after
+        logging and updates historyId.'
+      parameters:
+      - description: Pub/Sub push notification envelope
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_gmail.pubSubPushBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      summary: Gmail push notification
+      tags:
+      - Gmail
+securityDefinitions:
+  Bearer:
+    description: Type "Bearer" followed by a space and the JWT access token.
+    in: header
+    name: Authorization
+    type: apiKey
+  WebhookSecret:
+    description: Webhook secret key for authenticating email webhook requests.
+    in: header
+    name: X-Webhook-Secret
+    type: apiKey
+swagger: "2.0"

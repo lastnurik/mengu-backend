@@ -16,6 +16,16 @@ func NewHandler(svc *Service) *Handler {
 	return &Handler{svc: svc}
 }
 
+// Get godoc
+// @Summary      Get organization
+// @Description  Get the authenticated user's organization details.
+// @Tags         Organization
+// @Accept       json
+// @Produce      json
+// @Success      200  {object}  object{id=string,name=string,slug=string,plan=string,created_at=string}
+// @Failure      500  {object}  object{error=string,message=string}
+// @Security     Bearer
+// @Router       /organization [get]
 func (h *Handler) Get(c *gin.Context) {
 	orgID := c.GetString("org_id")
 	org, err := h.svc.GetByID(c.Request.Context(), orgID)
@@ -26,6 +36,18 @@ func (h *Handler) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, org)
 }
 
+// Update godoc
+// @Summary      Update organization
+// @Description  Update organization settings (name, plan).
+// @Tags         Organization
+// @Accept       json
+// @Produce      json
+// @Param        request  body      object{name=string,plan=string}  true  "Organization update fields"
+// @Success      200      {object}  object{id=string,name=string,slug=string,plan=string,created_at=string}
+// @Failure      400      {object}  object{error=string,message=string}
+// @Failure      404      {object}  object{error=string,message=string}
+// @Security     Bearer
+// @Router       /organization [patch]
 func (h *Handler) Update(c *gin.Context) {
 	orgID := c.GetString("org_id")
 

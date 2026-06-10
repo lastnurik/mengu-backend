@@ -3,6 +3,7 @@ package documents
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -15,6 +16,26 @@ func NewHandler(repo *Repository) *Handler {
 	return &Handler{repo: repo}
 }
 
+type documentListItem struct {
+	ID        string  `json:"id" example:"doc_001" format:"uuid"`
+	FileName  string  `json:"file_name" example:"contract.pdf"`
+	Summary   *string `json:"summary,omitempty" example:"Analyzed legal document"`
+	Risks     int     `json:"risks" example:"3"`
+	CreatedAt string  `json:"analyzed_at" example:"2026-06-10T12:03:00Z"`
+}
+
+// ListByEvent godoc
+// @Summary      List analyzed documents for event
+// @Description  List AI-analyzed documents associated with a specific event.
+// @Tags         Documents
+// @Accept       json
+// @Produce      json
+// @Param        id        path  string  true   "Event ID"
+// @Param        page      query  int     false  "Page number (default 1)"
+// @Param        per_page  query  int     false  "Items per page (default 20)"
+// @Success      200       {object}  object{data=[]documentListItem,total=int,page=int,per_page=int}
+// @Security     Bearer
+// @Router       /events/{id}/documents [get]
 func (h *Handler) ListByEvent(c *gin.Context) {
 	orgID := c.GetString("org_id")
 	eventID := c.Param("id")
@@ -28,20 +49,36 @@ func (h *Handler) ListByEvent(c *gin.Context) {
 		return
 	}
 
+	total := len(docs)
 	start := (page - 1) * perPage
-	if start >= len(docs) {
+	if start >= total {
 		docs = nil
 	} else {
 		end := start + perPage
-		if end > len(docs) {
-			end = len(docs)
+		if end > total {
+			end = total
 		}
 		docs = docs[start:end]
 	}
 
+	items := make([]documentListItem, 0, len(docs))
+	for _, d := range docs {
+		riskCount := 0
+		if len(d.Risks) > 0 {
+			riskCount = 1
+		}
+		items = append(items, documentListItem{
+			ID:        d.ID,
+			FileName:  d.FileName,
+			Summary:   d.Summary,
+			Risks:     riskCount,
+			CreatedAt: d.AnalyzedAt.Format(time.RFC3339),
+		})
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"data":     docs,
-		"total":    len(docs),
+		"data":     items,
+		"total":    total,
 		"page":     page,
 		"per_page": perPage,
 	})

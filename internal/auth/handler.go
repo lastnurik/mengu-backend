@@ -15,6 +15,17 @@ func NewHandler(svc *Service) *Handler {
 	return &Handler{svc: svc}
 }
 
+// Login godoc
+// @Summary      Authenticate user
+// @Description  Authenticate user via email and password. Returns JWT access and refresh tokens.
+// @Tags         Authentication
+// @Accept       json
+// @Produce      json
+// @Param        request  body      object{email=string,password=string}  true  "Login credentials"
+// @Success      200      {object}  object{access_token=string,refresh_token=string,token_type=string,expires_in=integer}
+// @Failure      400      {object}  object{error=string,message=string}
+// @Failure      401      {object}  object{error=string,message=string}
+// @Router       /auth/login [post]
 func (h *Handler) Login(c *gin.Context) {
 	var req struct {
 		Email    string `json:"email" binding:"required"`
@@ -38,6 +49,17 @@ func (h *Handler) Login(c *gin.Context) {
 	c.JSON(http.StatusOK, tokens)
 }
 
+// Refresh godoc
+// @Summary      Refresh access token
+// @Description  Exchange a valid refresh token for a new access/refresh token pair.
+// @Tags         Authentication
+// @Accept       json
+// @Produce      json
+// @Param        request  body      object{refresh_token=string}  true  "Refresh token"
+// @Success      200      {object}  object{access_token=string,refresh_token=string,token_type=string,expires_in=integer}
+// @Failure      400      {object}  object{error=string,message=string}
+// @Failure      401      {object}  object{error=string,message=string}
+// @Router       /auth/refresh [post]
 func (h *Handler) Refresh(c *gin.Context) {
 	var req struct {
 		RefreshToken string `json:"refresh_token" binding:"required"`
@@ -60,6 +82,16 @@ func (h *Handler) Refresh(c *gin.Context) {
 	c.JSON(http.StatusOK, tokens)
 }
 
+// OAuthGoogle godoc
+// @Summary      Google OAuth login
+// @Description  Authenticate or register via Google OAuth2 authorization code.
+// @Tags         Authentication
+// @Accept       json
+// @Produce      json
+// @Param        request  body      object{code=string}  true  "Google OAuth authorization code"
+// @Success      200      {object}  object{access_token=string,refresh_token=string,token_type=string,expires_in=integer}
+// @Failure      400      {object}  object{error=string,message=string}
+// @Router       /auth/oauth/google [post]
 func (h *Handler) OAuthGoogle(c *gin.Context) {
 	var req struct {
 		Code string `json:"code" binding:"required"`
@@ -78,6 +110,16 @@ func (h *Handler) OAuthGoogle(c *gin.Context) {
 	c.JSON(http.StatusOK, tokens)
 }
 
+// OAuthMicrosoft godoc
+// @Summary      Microsoft OAuth login
+// @Description  Authenticate or register via Microsoft OAuth2 authorization code.
+// @Tags         Authentication
+// @Accept       json
+// @Produce      json
+// @Param        request  body      object{code=string}  true  "Microsoft OAuth authorization code"
+// @Success      200      {object}  object{access_token=string,refresh_token=string,token_type=string,expires_in=integer}
+// @Failure      400      {object}  object{error=string,message=string}
+// @Router       /auth/oauth/microsoft [post]
 func (h *Handler) OAuthMicrosoft(c *gin.Context) {
 	var req struct {
 		Code string `json:"code" binding:"required"`

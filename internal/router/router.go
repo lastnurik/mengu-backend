@@ -5,8 +5,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/config"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/middleware"
+
+	_ "github.com/nurik/Dev/repos/mengu-backend/docs"
 )
 
 type Handlers struct {
@@ -45,6 +49,7 @@ func New(cfg *config.Config, _ *pgxpool.Pool, logger *slog.Logger, h Handlers) *
 	r.Use(middleware.Logger(logger))
 
 	r.GET("/health", h.Health)
+	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	r.POST("/webhooks/email", h.WebhookEmail)
 	r.POST("/webhooks/gmail", h.WebhookGmail)

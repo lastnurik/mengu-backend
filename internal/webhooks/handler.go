@@ -16,6 +16,19 @@ func NewHandler(svc *email.Service) *Handler {
 	return &Handler{svc: svc}
 }
 
+// Email godoc
+// @Summary      Ingest email via webhook
+// @Description  Receive incoming email from external email service. Looks up organization by X-Webhook-Secret and stores as incoming_event.
+// @Tags         Webhooks
+// @Accept       json
+// @Produce      json
+// @Param        X-Webhook-Secret  header    string                       true  "Organization webhook secret"
+// @Param        request           body      email.WebhookPayload         true  "Email payload"
+// @Success      201               {object}  object{event_id=string,status=string}
+// @Failure      400               {object}  object{error=string,message=string}
+// @Failure      401               {object}  object{error=string,message=string}
+// @Security     WebhookSecret
+// @Router       /webhooks/email [post]
 func (h *Handler) Email(c *gin.Context) {
 	secret := c.GetHeader("X-Webhook-Secret")
 	if secret == "" {

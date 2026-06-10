@@ -35,6 +35,15 @@ type pubSubData struct {
 	HistoryID    string `json:"historyId"`
 }
 
+// Webhook godoc
+// @Summary      Gmail push notification
+// @Description  Receives Pub/Sub push notifications from Google for Gmail mailbox changes (new email, label changes). Idempotent: responds 200 immediately after logging and updates historyId.
+// @Tags         Gmail
+// @Accept       json
+// @Produce      json
+// @Param        request  body  pubSubPushBody  true  "Pub/Sub push notification envelope"
+// @Success      200  {object}  object{}
+// @Router       /webhooks/gmail [post]
 func (h *Handler) Webhook(c *gin.Context) {
 	var body pubSubPushBody
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -73,15 +82,27 @@ func (h *Handler) Webhook(c *gin.Context) {
 }
 
 type WatchRequest struct {
-	EmailAddress string `json:"email_address" binding:"required"`
+	EmailAddress string `json:"email_address" example:"user@company.com" format:"email"`
 }
 
 type WatchResponse struct {
-	Status       string `json:"status"`
-	EmailAddress string `json:"email_address"`
-	ExpiresAt    string `json:"expires_at"`
+	Status       string `json:"status" example:"watch_started"`
+	EmailAddress string `json:"email_address" example:"user@company.com"`
+	ExpiresAt    string `json:"expires_at" example:"2026-06-17T15:26:00Z"`
 }
 
+// InitiateWatch godoc
+// @Summary      Start Gmail watch
+// @Description  Initiates Gmail API watch for the authenticated user's organization — subscribes to mailbox push notifications (requires prior Google OAuth consent).
+// @Tags         Gmail
+// @Accept       json
+// @Produce      json
+// @Param        request  body  WatchRequest  true  "Email address to watch"
+// @Success      200      {object}  WatchResponse
+// @Failure      400      {object}  object{error=string,message=string}
+// @Failure      500      {object}  object{error=string,message=string}
+// @Security     Bearer
+// @Router       /gmail/watch [post]
 func (h *Handler) InitiateWatch(c *gin.Context) {
 	var req WatchRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

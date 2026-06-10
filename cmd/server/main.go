@@ -1,3 +1,26 @@
+// @title           Mengu AI API
+// @version         1.0.0
+// @description     AI-assisted email automation platform. Ingests emails, analyzes them with LLM to extract intent and actions, then executes actions through deterministic handlers.
+// @termsOfService  https://mengu.ai/terms
+
+// @contact.name   API Support
+// @contact.email  support@mengu.ai
+
+// @license.name  Proprietary
+
+// @host      localhost:8080
+// @BasePath  /api/v1
+
+// @securityDefinitions.apikey Bearer
+// @in header
+// @name Authorization
+// @description Type "Bearer" followed by a space and the JWT access token.
+
+// @securityDefinitions.apikey WebhookSecret
+// @in header
+// @name X-Webhook-Secret
+// @description Webhook secret key for authenticating email webhook requests.
+
 package main
 
 import (
