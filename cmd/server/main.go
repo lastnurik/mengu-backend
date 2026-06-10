@@ -8,8 +8,10 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/nurik/Dev/repos/mengu-backend/internal/auth"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/config"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/db"
+	org "github.com/nurik/Dev/repos/mengu-backend/internal/organization"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/router"
 )
 
@@ -52,10 +54,25 @@ func main() {
 		os.Exit(1)
 	}
 
+	orgRepo := org.NewRepository(pool)
+	orgSvc := org.NewService(orgRepo)
+	orgHandler := org.NewHandler(orgSvc)
+
+	authRepo := auth.NewRepository(pool)
+	authSvc := auth.NewService(authRepo, cfg.JWTSecret, cfg.JWTAccessTTL, cfg.JWTRefreshTTL,
+		cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.MicrosoftClientID, cfg.MicrosoftClientSecret)
+	authHandler := auth.NewHandler(authSvc)
+
 	healthHandler := router.HealthHandler(pool)
 
 	r := router.New(cfg, pool, logger, router.Handlers{
-		Health: healthHandler,
+		Health:         healthHandler,
+		AuthLogin:      authHandler.Login,
+		AuthRefresh:    authHandler.Refresh,
+		AuthOAuthGoogle: authHandler.OAuthGoogle,
+		AuthOAuthMicro: authHandler.OAuthMicrosoft,
+		OrgGet:         orgHandler.Get,
+		OrgUpdate:      orgHandler.Update,
 	})
 
 	srv := &http.Server{

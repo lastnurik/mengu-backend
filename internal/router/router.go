@@ -10,7 +10,13 @@ import (
 )
 
 type Handlers struct {
-	Health gin.HandlerFunc
+	Health           gin.HandlerFunc
+	AuthLogin        gin.HandlerFunc
+	AuthRefresh      gin.HandlerFunc
+	AuthOAuthGoogle  gin.HandlerFunc
+	AuthOAuthMicro   gin.HandlerFunc
+	OrgGet           gin.HandlerFunc
+	OrgUpdate        gin.HandlerFunc
 }
 
 func New(cfg *config.Config, _ *pgxpool.Pool, logger *slog.Logger, h Handlers) *gin.Engine {
@@ -22,6 +28,25 @@ func New(cfg *config.Config, _ *pgxpool.Pool, logger *slog.Logger, h Handlers) *
 	r.Use(middleware.Logger(logger))
 
 	r.GET("/health", h.Health)
+
+	api := r.Group("/api/v1")
+	{
+		auth := api.Group("/auth")
+		{
+			auth.POST("/login", h.AuthLogin)
+			auth.POST("/refresh", h.AuthRefresh)
+			auth.POST("/oauth/google", h.AuthOAuthGoogle)
+			auth.POST("/oauth/microsoft", h.AuthOAuthMicro)
+		}
+
+		authed := api.Group("")
+		authed.Use(middleware.AuthRequired(cfg.JWTSecret))
+		authed.Use(middleware.OrgMiddleware())
+		{
+			authed.GET("/organization", h.OrgGet)
+			authed.PATCH("/organization", h.OrgUpdate)
+		}
+	}
 
 	return r
 }
