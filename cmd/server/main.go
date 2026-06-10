@@ -13,9 +13,12 @@ import (
 	"github.com/nurik/Dev/repos/mengu-backend/internal/auth"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/config"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/db"
+	"github.com/nurik/Dev/repos/mengu-backend/internal/documents"
+	"github.com/nurik/Dev/repos/mengu-backend/internal/drafts"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/email"
 	org "github.com/nurik/Dev/repos/mengu-backend/internal/organization"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/router"
+	"github.com/nurik/Dev/repos/mengu-backend/internal/tasks"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/webhooks"
 )
 
@@ -72,6 +75,7 @@ func main() {
 	eventsHandler := email.NewEventsHandler(emailSvc)
 	webhookHandler := webhooks.NewHandler(emailSvc)
 
+	aiRepo := ai.NewRepository(pool)
 	aiClient := ai.NewClient(cfg.LLMApiURL, cfg.LLMApiKey, cfg.LLMModel, cfg.LLMTimeout)
 
 	actionsRepo := actions.NewRepository(pool)
@@ -84,20 +88,42 @@ func main() {
 	worker := actions.NewWorker(pool, aiClient, actionEngine, logger, cfg.WorkerPollInterval)
 	go worker.Run(ctx)
 
+	eventDetailHandler := email.NewEventDetailHandler(emailRepo, aiRepo, actionsRepo)
+
+	tasksRepo := tasks.NewRepository(pool)
+	tasksHandler := tasks.NewHandler(tasksRepo)
+
+	docsRepo := documents.NewRepository(pool)
+	docsHandler := documents.NewHandler(docsRepo)
+
+	draftsRepo := drafts.NewRepository(pool)
+	draftsHandler := drafts.NewHandler(draftsRepo)
+
 	healthHandler := router.HealthHandler(pool)
 
 	r := router.New(cfg, pool, logger, router.Handlers{
-		Health:          healthHandler,
-		AuthLogin:       authHandler.Login,
-		AuthRefresh:     authHandler.Refresh,
-		AuthOAuthGoogle: authHandler.OAuthGoogle,
-		AuthOAuthMicro:  authHandler.OAuthMicrosoft,
-		OrgGet:          orgHandler.Get,
-		OrgUpdate:       orgHandler.Update,
-		WebhookEmail:    webhookHandler.Email,
-		EventsList:      eventsHandler.List,
-		EventsGet:       eventsHandler.Get,
-		EventsReanalyze: eventsHandler.Reanalyze,
+		Health:              healthHandler,
+		AuthLogin:           authHandler.Login,
+		AuthRefresh:         authHandler.Refresh,
+		AuthOAuthGoogle:     authHandler.OAuthGoogle,
+		AuthOAuthMicro:      authHandler.OAuthMicrosoft,
+		OrgGet:              orgHandler.Get,
+		OrgUpdate:           orgHandler.Update,
+		WebhookEmail:        webhookHandler.Email,
+		EventsList:          eventsHandler.List,
+		EventsReanalyze:     eventsHandler.Reanalyze,
+		EventsGetWithDetail: eventDetailHandler.GetWithDetails,
+		EventsGetAnalysis:   eventDetailHandler.GetAnalysis,
+		EventsGetLogs:       eventDetailHandler.GetLogs,
+		EventsGetCalendar:   eventDetailHandler.GetCalendarEvents,
+		EventsGetDocs:       docsHandler.ListByEvent,
+		EventsGetDrafts:     draftsHandler.ListByEvent,
+		TasksList:           tasksHandler.List,
+		TasksGet:            tasksHandler.Get,
+		TasksUpdate:         tasksHandler.Update,
+		DraftsGet:           draftsHandler.Get,
+		DraftsUpdate:        draftsHandler.Update,
+		DraftsApprove:       draftsHandler.Approve,
 	})
 
 	srv := &http.Server{
