@@ -8,6 +8,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/nurik/Dev/repos/mengu-backend/internal/actions"
+	"github.com/nurik/Dev/repos/mengu-backend/internal/ai"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/auth"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/config"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/db"
@@ -70,19 +72,32 @@ func main() {
 	eventsHandler := email.NewEventsHandler(emailSvc)
 	webhookHandler := webhooks.NewHandler(emailSvc)
 
+	aiClient := ai.NewClient(cfg.LLMApiURL, cfg.LLMApiKey, cfg.LLMModel, cfg.LLMTimeout)
+
+	actionsRepo := actions.NewRepository(pool)
+	actionEngine := actions.NewEngine(actionsRepo, logger)
+	actionEngine.Register("schedule_meeting", actions.NewMeetingHandler())
+	actionEngine.Register("create_task", actions.NewTaskHandler(pool))
+	actionEngine.Register("analyze_document", actions.NewDocumentHandler(pool, aiClient))
+	actionEngine.Register("send_email_draft", actions.NewEmailDraftHandler(pool, aiClient))
+
+	worker := actions.NewWorker(pool, aiClient, actionEngine, logger, cfg.WorkerPollInterval)
+	go worker.Run(ctx)
+
 	healthHandler := router.HealthHandler(pool)
 
 	r := router.New(cfg, pool, logger, router.Handlers{
-		Health:         healthHandler,
-		AuthLogin:      authHandler.Login,
-		AuthRefresh:    authHandler.Refresh,
+		Health:          healthHandler,
+		AuthLogin:       authHandler.Login,
+		AuthRefresh:     authHandler.Refresh,
 		AuthOAuthGoogle: authHandler.OAuthGoogle,
-		AuthOAuthMicro: authHandler.OAuthMicrosoft,
-		OrgGet:         orgHandler.Get,
-		OrgUpdate:      orgHandler.Update,
-		WebhookEmail:   webhookHandler.Email,
-		EventsList:     eventsHandler.List,
-		EventsGet:      eventsHandler.Get,
+		AuthOAuthMicro:  authHandler.OAuthMicrosoft,
+		OrgGet:          orgHandler.Get,
+		OrgUpdate:       orgHandler.Update,
+		WebhookEmail:    webhookHandler.Email,
+		EventsList:      eventsHandler.List,
+		EventsGet:       eventsHandler.Get,
+		EventsReanalyze: eventsHandler.Reanalyze,
 	})
 
 	srv := &http.Server{
@@ -103,6 +118,8 @@ func main() {
 
 	<-sigCtx.Done()
 	logger.Info("shutting down server...")
+
+	cancel()
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer shutdownCancel()

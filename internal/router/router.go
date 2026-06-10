@@ -10,16 +10,17 @@ import (
 )
 
 type Handlers struct {
-	Health         gin.HandlerFunc
-	AuthLogin      gin.HandlerFunc
-	AuthRefresh    gin.HandlerFunc
-	AuthOAuthGoogle gin.HandlerFunc
-	AuthOAuthMicro gin.HandlerFunc
-	OrgGet         gin.HandlerFunc
-	OrgUpdate      gin.HandlerFunc
-	WebhookEmail   gin.HandlerFunc
-	EventsList     gin.HandlerFunc
-	EventsGet      gin.HandlerFunc
+	Health           gin.HandlerFunc
+	AuthLogin        gin.HandlerFunc
+	AuthRefresh      gin.HandlerFunc
+	AuthOAuthGoogle  gin.HandlerFunc
+	AuthOAuthMicro   gin.HandlerFunc
+	OrgGet           gin.HandlerFunc
+	OrgUpdate        gin.HandlerFunc
+	WebhookEmail     gin.HandlerFunc
+	EventsList       gin.HandlerFunc
+	EventsGet        gin.HandlerFunc
+	EventsReanalyze  gin.HandlerFunc
 }
 
 func New(cfg *config.Config, _ *pgxpool.Pool, logger *slog.Logger, h Handlers) *gin.Engine {
@@ -53,6 +54,7 @@ func New(cfg *config.Config, _ *pgxpool.Pool, logger *slog.Logger, h Handlers) *
 
 			authed.GET("/events", h.EventsList)
 			authed.GET("/events/:id", h.EventsGet)
+			authed.POST("/events/:id/reanalyze", h.EventsReanalyze)
 		}
 	}
 

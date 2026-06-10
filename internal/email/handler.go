@@ -88,3 +88,21 @@ func (h *EventsHandler) Get(c *gin.Context) {
 
 	c.JSON(http.StatusOK, evt)
 }
+
+func (h *EventsHandler) Reanalyze(c *gin.Context) {
+	orgID := c.GetString("org_id")
+	id := c.Param("id")
+
+	if err := h.svc.Reanalyze(c.Request.Context(), id, orgID); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "event_not_found", "message": "Event with the specified ID was not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error", "message": "Failed to reanalyze event"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status": "processing",
+	})
+}

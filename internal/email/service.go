@@ -90,3 +90,11 @@ func (s *Service) ListEvents(ctx context.Context, input ListInput) (*ListEventsR
 		Limit:  input.Limit,
 	})
 }
+
+func (s *Service) Reanalyze(ctx context.Context, id, orgID string) error {
+	_, err := s.repo.GetByID(ctx, id, orgID)
+	if err != nil {
+		return err
+	}
+	return s.repo.UpdateStatus(ctx, id, orgID, "new")
+}
