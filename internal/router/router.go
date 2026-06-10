@@ -18,6 +18,8 @@ type Handlers struct {
 	OrgGet              gin.HandlerFunc
 	OrgUpdate           gin.HandlerFunc
 	WebhookEmail        gin.HandlerFunc
+	WebhookGmail        gin.HandlerFunc
+	GmailWatch          gin.HandlerFunc
 	EventsList          gin.HandlerFunc
 	EventsGetWithDetail gin.HandlerFunc
 	EventsReanalyze     gin.HandlerFunc
@@ -45,6 +47,7 @@ func New(cfg *config.Config, _ *pgxpool.Pool, logger *slog.Logger, h Handlers) *
 	r.GET("/health", h.Health)
 
 	r.POST("/webhooks/email", h.WebhookEmail)
+	r.POST("/webhooks/gmail", h.WebhookGmail)
 
 	api := r.Group("/api/v1")
 	{
@@ -71,6 +74,8 @@ func New(cfg *config.Config, _ *pgxpool.Pool, logger *slog.Logger, h Handlers) *
 			authed.GET("/events/:id/documents", h.EventsGetDocs)
 			authed.GET("/events/:id/drafts", h.EventsGetDrafts)
 			authed.GET("/events/:id/calendar-events", h.EventsGetCalendar)
+
+			authed.POST("/gmail/watch", h.GmailWatch)
 
 			authed.GET("/tasks", h.TasksList)
 			authed.GET("/tasks/:id", h.TasksGet)

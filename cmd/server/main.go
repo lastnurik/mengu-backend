@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/nurik/Dev/repos/mengu-backend/internal/actions"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/ai"
@@ -16,6 +17,7 @@ import (
 	"github.com/nurik/Dev/repos/mengu-backend/internal/documents"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/drafts"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/email"
+	"github.com/nurik/Dev/repos/mengu-backend/internal/gmail"
 	org "github.com/nurik/Dev/repos/mengu-backend/internal/organization"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/router"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/tasks"
@@ -99,6 +101,11 @@ func main() {
 	draftsRepo := drafts.NewRepository(pool)
 	draftsHandler := drafts.NewHandler(draftsRepo)
 
+	gmailRepo := gmail.NewRepository(pool)
+	gmailHandler := gmail.NewHandler(gmailRepo, emailSvc, logger)
+	gmailRenewal := gmail.NewRenewalService(gmailRepo, logger, 1*time.Hour)
+	go gmailRenewal.Run(ctx)
+
 	healthHandler := router.HealthHandler(pool)
 
 	r := router.New(cfg, pool, logger, router.Handlers{
@@ -110,6 +117,8 @@ func main() {
 		OrgGet:              orgHandler.Get,
 		OrgUpdate:           orgHandler.Update,
 		WebhookEmail:        webhookHandler.Email,
+		WebhookGmail:        gmailHandler.Webhook,
+		GmailWatch:          gmailHandler.InitiateWatch,
 		EventsList:          eventsHandler.List,
 		EventsReanalyze:     eventsHandler.Reanalyze,
 		EventsGetWithDetail: eventDetailHandler.GetWithDetails,
