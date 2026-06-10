@@ -11,8 +11,10 @@ import (
 	"github.com/nurik/Dev/repos/mengu-backend/internal/auth"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/config"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/db"
+	"github.com/nurik/Dev/repos/mengu-backend/internal/email"
 	org "github.com/nurik/Dev/repos/mengu-backend/internal/organization"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/router"
+	"github.com/nurik/Dev/repos/mengu-backend/internal/webhooks"
 )
 
 func main() {
@@ -63,6 +65,11 @@ func main() {
 		cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.MicrosoftClientID, cfg.MicrosoftClientSecret)
 	authHandler := auth.NewHandler(authSvc)
 
+	emailRepo := email.NewRepository(pool)
+	emailSvc := email.NewService(emailRepo, orgRepo)
+	eventsHandler := email.NewEventsHandler(emailSvc)
+	webhookHandler := webhooks.NewHandler(emailSvc)
+
 	healthHandler := router.HealthHandler(pool)
 
 	r := router.New(cfg, pool, logger, router.Handlers{
@@ -73,6 +80,9 @@ func main() {
 		AuthOAuthMicro: authHandler.OAuthMicrosoft,
 		OrgGet:         orgHandler.Get,
 		OrgUpdate:      orgHandler.Update,
+		WebhookEmail:   webhookHandler.Email,
+		EventsList:     eventsHandler.List,
+		EventsGet:      eventsHandler.Get,
 	})
 
 	srv := &http.Server{
