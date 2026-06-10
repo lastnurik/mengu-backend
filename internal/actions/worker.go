@@ -11,11 +11,11 @@ import (
 )
 
 type Worker struct {
-	pool       *pgxpool.Pool
-	aiClient   *ai.Client
-	engine     *Engine
-	logger     *slog.Logger
-	interval   time.Duration
+	pool     *pgxpool.Pool
+	aiClient *ai.Client
+	engine   *Engine
+	logger   *slog.Logger
+	interval time.Duration
 }
 
 func NewWorker(pool *pgxpool.Pool, aiClient *ai.Client, engine *Engine, logger *slog.Logger, interval time.Duration) *Worker {
@@ -49,21 +49,18 @@ func (w *Worker) processNext(ctx context.Context) {
 	}
 	defer tx.Rollback(ctx)
 
-	var id, orgID, source, rawContent string
-	var metadata json.RawMessage
-	var createdAt time.Time
+	var id, orgID, rawContent string
 
 	err = tx.QueryRow(ctx,
-		`SELECT id, org_id, source, raw_content, metadata, created_at
+		`SELECT id, org_id, raw_content
 		 FROM incoming_events
 		 WHERE status = 'new'
 		 ORDER BY created_at ASC
 		 LIMIT 1
 		 FOR UPDATE SKIP LOCKED`,
-	).Scan(&id, &orgID, &source, &rawContent, &metadata, &createdAt)
+	).Scan(&id, &orgID, &rawContent)
 
 	if err != nil {
-		tx.Rollback(ctx)
 		return
 	}
 
@@ -83,6 +80,13 @@ func (w *Worker) processNext(ctx context.Context) {
 }
 
 func (w *Worker) processEvent(ctx context.Context, eventID, orgID, content string) {
+	defer func() {
+		if r := recover(); r != nil {
+			w.logger.Error("worker: panic processing event", "event_id", eventID, "recover", r)
+			w.updateEventStatus(context.Background(), eventID, orgID, "failed")
+		}
+	}()
+
 	result, err := w.aiClient.AnalyzeEmail(ctx, content)
 	if err != nil {
 		w.logger.Error("worker: AI analysis failed", "event_id", eventID, "error", err)

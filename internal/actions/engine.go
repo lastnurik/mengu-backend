@@ -48,17 +48,19 @@ func (e *Engine) Execute(ctx context.Context, orgID, eventID string, actions []a
 			e.logger.Error("action handler failed", "action_type", action.Type, "error", err)
 		}
 
-		payload, _ := json.Marshal(action.Data)
-		logEntry := &LogRow{
-			OrgID:      orgID,
-			EventID:    eventID,
-			ActionType: action.Type,
-			Payload:    payload,
-			Status:     status,
-			ErrorMessage: errMsg,
-		}
-		if err := e.logRepo.CreateLog(ctx, logEntry); err != nil {
-			e.logger.Error("failed to log action", "action_type", action.Type, "error", err)
+		if e.logRepo != nil {
+			payload, _ := json.Marshal(action.Data)
+			logEntry := &LogRow{
+				OrgID:      orgID,
+				EventID:    eventID,
+				ActionType: action.Type,
+				Payload:    payload,
+				Status:     status,
+				ErrorMessage: errMsg,
+			}
+			if err := e.logRepo.CreateLog(ctx, logEntry); err != nil {
+				e.logger.Error("failed to log action", "action_type", action.Type, "error", err)
+			}
 		}
 	}
 }
