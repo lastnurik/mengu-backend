@@ -29,7 +29,15 @@ func (h *DocumentHandler) Handle(ctx context.Context, orgID, eventID string, act
 		return fmt.Errorf("file name is required")
 	}
 
-	result, err := h.cli.AnalyzeDocument(ctx, "Document content placeholder: "+data.FileName)
+	var rawContent string
+	err := h.pool.QueryRow(ctx,
+		`SELECT raw_content FROM incoming_events WHERE id = $1 AND org_id = $2`,
+		eventID, orgID).Scan(&rawContent)
+	if err != nil {
+		return fmt.Errorf("failed to fetch event content: %w", err)
+	}
+
+	result, err := h.cli.AnalyzeDocument(ctx, rawContent)
 	if err != nil {
 		return fmt.Errorf("document analysis failed: %w", err)
 	}

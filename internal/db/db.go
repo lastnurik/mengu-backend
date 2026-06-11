@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/golang-migrate/migrate/v4"
-	"github.com/golang-migrate/migrate/v4/database/pgx/v5"
+	migratepgx "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 )
 
@@ -33,16 +33,15 @@ func RunMigrations(databaseURL string) error {
 		return fmt.Errorf("failed to create migration source: %w", err)
 	}
 
-	pool, err := pgxpool.New(context.Background(), databaseURL)
+	connConfig, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
-		return fmt.Errorf("failed to connect for migrations: %w", err)
+		return fmt.Errorf("failed to parse database config: %w", err)
 	}
-	defer pool.Close()
 
-	db := stdlib.OpenDBFromPool(pool)
+	db := stdlib.OpenDB(*connConfig.ConnConfig)
 	defer db.Close()
 
-	driver, err := pgx.WithInstance(db, &pgx.Config{})
+	driver, err := migratepgx.WithInstance(db, &migratepgx.Config{})
 	if err != nil {
 		return fmt.Errorf("failed to create migration driver: %w", err)
 	}

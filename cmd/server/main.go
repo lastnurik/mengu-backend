@@ -35,12 +35,15 @@ import (
 	"github.com/nurik/Dev/repos/mengu-backend/internal/actions"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/ai"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/auth"
+	"github.com/nurik/Dev/repos/mengu-backend/internal/calendar"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/config"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/db"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/documents"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/drafts"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/email"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/gmail"
+	"github.com/nurik/Dev/repos/mengu-backend/internal/integration"
+	oauthpkg "github.com/nurik/Dev/repos/mengu-backend/internal/oauth"
 	org "github.com/nurik/Dev/repos/mengu-backend/internal/organization"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/router"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/tasks"
@@ -91,9 +94,13 @@ func main() {
 	orgHandler := org.NewHandler(orgSvc)
 
 	authRepo := auth.NewRepository(pool)
-	authSvc := auth.NewService(authRepo, cfg.JWTSecret, cfg.JWTAccessTTL, cfg.JWTRefreshTTL,
-		cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.MicrosoftClientID, cfg.MicrosoftClientSecret)
+	authSvc := auth.NewService(authRepo, orgRepo, pool, cfg.JWTSecret, cfg.JWTAccessTTL, cfg.JWTRefreshTTL,
+		cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.MicrosoftClientID, cfg.MicrosoftClientSecret, cfg.OAuthRedirectURI, cfg.FrontendURL)
 	authHandler := auth.NewHandler(authSvc)
+
+	oauthRepo := oauthpkg.NewRepository(pool)
+	calClient := calendar.NewClient(oauthRepo, cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.OAuthRedirectURI)
+	gmailAPIClient := gmail.NewAPIClient(oauthRepo, cfg.GmailTopicName, cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.OAuthRedirectURI)
 
 	emailRepo := email.NewRepository(pool)
 	emailSvc := email.NewService(emailRepo, orgRepo)
@@ -105,7 +112,7 @@ func main() {
 
 	actionsRepo := actions.NewRepository(pool)
 	actionEngine := actions.NewEngine(actionsRepo, logger)
-	actionEngine.Register("schedule_meeting", actions.NewMeetingHandler())
+	actionEngine.Register("schedule_meeting", actions.NewMeetingHandler(calClient))
 	actionEngine.Register("create_task", actions.NewTaskHandler(pool))
 	actionEngine.Register("analyze_document", actions.NewDocumentHandler(pool, aiClient))
 	actionEngine.Register("send_email_draft", actions.NewEmailDraftHandler(pool, aiClient))
@@ -125,16 +132,22 @@ func main() {
 	draftsHandler := drafts.NewHandler(draftsRepo)
 
 	gmailRepo := gmail.NewRepository(pool)
-	gmailHandler := gmail.NewHandler(gmailRepo, emailSvc, logger)
-	gmailRenewal := gmail.NewRenewalService(gmailRepo, logger, 1*time.Hour)
+	gmailHandler := gmail.NewHandler(gmailRepo, gmailAPIClient, emailSvc, logger)
+	gmailRenewal := gmail.NewRenewalService(gmailRepo, gmailAPIClient, logger, 1*time.Hour)
 	go gmailRenewal.Run(ctx)
+
+	integHandler := integration.NewHandler(oauthRepo, cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.OAuthRedirectURI, cfg.FrontendURL)
+	authHandler.SetIntegrationCallback(integHandler.HandleCallback)
 
 	healthHandler := router.HealthHandler(pool)
 
 	r := router.New(cfg, pool, logger, router.Handlers{
 		Health:              healthHandler,
+		AuthRegister:        authHandler.Register,
 		AuthLogin:           authHandler.Login,
 		AuthRefresh:         authHandler.Refresh,
+		AuthOAuthURL:        authHandler.OAuthURL,
+		AuthOAuthCallback:   authHandler.OAuthCallback,
 		AuthOAuthGoogle:     authHandler.OAuthGoogle,
 		AuthOAuthMicro:      authHandler.OAuthMicrosoft,
 		OrgGet:              orgHandler.Get,
@@ -156,6 +169,9 @@ func main() {
 		DraftsGet:           draftsHandler.Get,
 		DraftsUpdate:        draftsHandler.Update,
 		DraftsApprove:       draftsHandler.Approve,
+		IntegList:           integHandler.List,
+		IntegOAuthURL:       integHandler.OAuthURL,
+		IntegDisconnect:     integHandler.Disconnect,
 	})
 
 	srv := &http.Server{

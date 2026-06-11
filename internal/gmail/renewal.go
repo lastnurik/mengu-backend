@@ -8,12 +8,13 @@ import (
 
 type RenewalService struct {
 	repo     *Repository
+	api      *APIClient
 	logger   *slog.Logger
 	interval time.Duration
 }
 
-func NewRenewalService(repo *Repository, logger *slog.Logger, interval time.Duration) *RenewalService {
-	return &RenewalService{repo: repo, logger: logger, interval: interval}
+func NewRenewalService(repo *Repository, api *APIClient, logger *slog.Logger, interval time.Duration) *RenewalService {
+	return &RenewalService{repo: repo, api: api, logger: logger, interval: interval}
 }
 
 func (s *RenewalService) Run(ctx context.Context) {
@@ -42,12 +43,18 @@ func (s *RenewalService) renewExpiring(ctx context.Context) {
 	for _, watch := range watches {
 		s.logger.Info("gmail renewal: renewing watch", "org_id", watch.OrgID, "email", watch.EmailAddress)
 
+		historyID, err := s.api.Watch(ctx, watch.OrgID, watch.EmailAddress)
+		if err != nil {
+			s.logger.Error("gmail renewal: API watch failed", "org_id", watch.OrgID, "error", err)
+			continue
+		}
+
 		newExpiry := time.Now().Add(7 * 24 * time.Hour)
 		watch.ExpiresAt = newExpiry
-		watch.HistoryID = "renewed"
+		watch.HistoryID = historyID
 
 		if err := s.repo.Upsert(ctx, &watch); err != nil {
-			s.logger.Error("gmail renewal: failed to renew watch", "org_id", watch.OrgID, "error", err)
+			s.logger.Error("gmail renewal: failed to save renewed watch", "org_id", watch.OrgID, "error", err)
 		}
 	}
 }

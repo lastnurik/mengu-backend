@@ -71,6 +71,33 @@ func (s *Service) ProcessWebhook(ctx context.Context, secret string, payload *We
 	}, nil
 }
 
+func (s *Service) CreateEventFromEmail(ctx context.Context, orgID, source, sender, subject, body string, attachments []AttachmentPayload) (*WebhookResult, error) {
+	metadata := map[string]interface{}{
+		"sender":      sender,
+		"subject":     subject,
+		"attachments": attachments,
+	}
+	metaJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, err
+	}
+
+	evt, err := s.repo.Create(ctx, CreateEventParams{
+		OrgID:      orgID,
+		Source:     source,
+		RawContent: body,
+		Metadata:   metaJSON,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &WebhookResult{
+		EventID: evt.ID,
+		Status:  evt.Status,
+	}, nil
+}
+
 func (s *Service) GetEvent(ctx context.Context, id, orgID string) (*model.IncomingEvent, error) {
 	return s.repo.GetByID(ctx, id, orgID)
 }

@@ -34,6 +34,8 @@ type Config struct {
 	RateLimitRequests      int
 	RateLimitWindow        time.Duration
 	HealthBind             string
+	OAuthRedirectURI       string
+	FrontendURL            string
 }
 
 func Load() *Config {
@@ -65,6 +67,8 @@ func Load() *Config {
 		RateLimitRequests:     getInt("RATE_LIMIT_REQUESTS", 100),
 		RateLimitWindow:       getDuration("RATE_LIMIT_WINDOW", 60*time.Second),
 		HealthBind:            getEnv("HEALTH_BIND", ""),
+		OAuthRedirectURI:      getEnv("OAUTH_REDIRECT_URI", "http://localhost:8080/api/v1/auth/oauth/callback"),
+		FrontendURL:           getEnv("FRONTEND_URL", "http://localhost:5173"),
 	}
 }
 

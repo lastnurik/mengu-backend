@@ -1,18 +1,51 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
 
 type Handler struct {
-	svc *Service
+	svc           *Service
+	integCallback func(ctx context.Context, orgID, provider, code string) error
 }
 
 func NewHandler(svc *Service) *Handler {
 	return &Handler{svc: svc}
+}
+
+func (h *Handler) SetIntegrationCallback(fn func(ctx context.Context, orgID, provider, code string) error) {
+	h.integCallback = fn
+}
+
+// Register godoc
+// @Summary      Register organization
+// @Description  Create a new organization with an admin user. Returns JWT access and refresh tokens.
+// @Tags         Authentication
+// @Accept       json
+// @Produce      json
+// @Param        request  body      RegisterInput  true  "Registration details"
+// @Success      200      {object}  object{access_token=string,refresh_token=string,token_type=string,expires_in=integer}
+// @Failure      400      {object}  object{error=string,message=string}
+// @Router       /auth/register [post]
+func (h *Handler) Register(c *gin.Context) {
+	var req RegisterInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_payload", "message": "Invalid request body"})
+		return
+	}
+
+	tokens, err := h.svc.Register(c.Request.Context(), req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "registration_failed", "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, tokens)
 }
 
 // Login godoc
@@ -136,4 +169,60 @@ func (h *Handler) OAuthMicrosoft(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, tokens)
+}
+
+// OAuthURL godoc
+// @Summary      Get OAuth URL
+// @Description  Returns the Google OAuth authorization URL for login.
+// @Tags         Authentication
+// @Accept       json
+// @Produce      json
+// @Success      200  {object}  object{url=string}
+// @Router       /auth/oauth/url [get]
+func (h *Handler) OAuthURL(c *gin.Context) {
+	url := h.svc.OAuthURL("login")
+	c.JSON(http.StatusOK, gin.H{"url": url})
+}
+
+// OAuthCallback godoc
+// @Summary      OAuth callback
+// @Description  Handles OAuth callback from providers. State param determines purpose (login, gmail, calendar).
+// @Tags         Authentication
+// @Produce      json
+// @Param        code   query  string  true  "Authorization code"
+// @Param        state  query  string  true  "OAuth state (provider:purpose:org_id)"
+// @Router       /auth/oauth/callback [get]
+func (h *Handler) OAuthCallback(c *gin.Context) {
+	code := c.Query("code")
+	state := c.Query("state")
+	if code == "" || state == "" {
+		c.Redirect(http.StatusFound, h.svc.frontendURL+"/login?error=missing_params")
+		return
+	}
+
+	parts := strings.SplitN(state, ":", 3)
+
+	if len(parts) == 3 && parts[2] == "connect" {
+		provider := parts[0]
+		orgID := parts[1]
+
+		if h.integCallback != nil {
+			if err := h.integCallback(c.Request.Context(), orgID, provider, code); err != nil {
+				c.Redirect(http.StatusFound, h.svc.frontendURL+"/login?error=integration_failed")
+				return
+			}
+		}
+
+		c.Redirect(http.StatusFound, h.svc.frontendURL+"/login?integration="+provider+"&status=connected")
+		return
+	}
+
+	tokens, err := h.svc.OAuthGoogle(c.Request.Context(), code)
+	if err != nil {
+		c.Redirect(http.StatusFound, h.svc.frontendURL+"/login?error=oauth_failed")
+		return
+	}
+
+	c.Redirect(http.StatusFound,
+		h.svc.frontendURL+"/login?access_token="+tokens.AccessToken+"&refresh_token="+tokens.RefreshToken)
 }

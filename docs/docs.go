@@ -107,6 +107,35 @@ const docTemplate = `{
                 }
             }
         },
+        "/auth/oauth/callback": {
+            "get": {
+                "description": "Handles OAuth callback from providers. State param determines purpose (login, gmail, calendar).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Authentication"
+                ],
+                "summary": "OAuth callback",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Authorization code",
+                        "name": "code",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "OAuth state (provider:purpose:org_id)",
+                        "name": "state",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {}
+            }
+        },
         "/auth/oauth/google": {
             "post": {
                 "description": "Authenticate or register via Google OAuth2 authorization code.",
@@ -241,6 +270,34 @@ const docTemplate = `{
                 }
             }
         },
+        "/auth/oauth/url": {
+            "get": {
+                "description": "Returns the Google OAuth authorization URL for login.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Authentication"
+                ],
+                "summary": "Get OAuth URL",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "url": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/auth/refresh": {
             "post": {
                 "description": "Exchange a valid refresh token for a new access/refresh token pair.",
@@ -307,6 +364,68 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                },
+                                "message": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/register": {
+            "post": {
+                "description": "Create a new organization with an admin user. Returns JWT access and refresh tokens.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Authentication"
+                ],
+                "summary": "Register organization",
+                "parameters": [
+                    {
+                        "description": "Registration details",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/auth.RegisterInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "access_token": {
+                                    "type": "string"
+                                },
+                                "expires_in": {
+                                    "type": "integer"
+                                },
+                                "refresh_token": {
+                                    "type": "string"
+                                },
+                                "token_type": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
                         "schema": {
                             "type": "object",
                             "properties": {
@@ -593,7 +712,7 @@ const docTemplate = `{
                                 "data": {
                                     "type": "array",
                                     "items": {
-                                        "$ref": "#/definitions/internal_email.eventListItem"
+                                        "$ref": "#/definitions/email.eventListItem"
                                     }
                                 },
                                 "page": {
@@ -837,7 +956,7 @@ const docTemplate = `{
                                 "data": {
                                     "type": "array",
                                     "items": {
-                                        "$ref": "#/definitions/internal_documents.documentListItem"
+                                        "$ref": "#/definitions/documents.documentListItem"
                                     }
                                 },
                                 "page": {
@@ -909,7 +1028,7 @@ const docTemplate = `{
                                 "data": {
                                     "type": "array",
                                     "items": {
-                                        "$ref": "#/definitions/internal_drafts.draftListItem"
+                                        "$ref": "#/definitions/drafts.draftListItem"
                                     }
                                 },
                                 "page": {
@@ -1068,7 +1187,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_gmail.WatchRequest"
+                            "$ref": "#/definitions/gmail.WatchRequest"
                         }
                     }
                 ],
@@ -1076,7 +1195,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_gmail.WatchResponse"
+                            "$ref": "#/definitions/gmail.WatchResponse"
                         }
                     },
                     "400": {
@@ -1102,6 +1221,159 @@ const docTemplate = `{
                                     "type": "string"
                                 },
                                 "message": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/integrations": {
+            "get": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "description": "Returns connection status for all supported OAuth providers (gmail, calendar).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Integrations"
+                ],
+                "summary": "List integrations",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "connected": {
+                                        "type": "boolean"
+                                    },
+                                    "provider": {
+                                        "type": "string"
+                                    },
+                                    "scope": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/integrations/oauth/url": {
+            "get": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "description": "Returns a Google OAuth URL for connecting a service (gmail or calendar). User must visit the URL to grant consent.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Integrations"
+                ],
+                "summary": "Get integration OAuth URL",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Provider name: gmail or calendar",
+                        "name": "provider",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "url": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                },
+                                "message": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/integrations/{provider}": {
+            "delete": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "description": "Disconnects a provider (gmail or calendar) by removing stored OAuth tokens.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Integrations"
+                ],
+                "summary": "Disconnect integration",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Provider name: gmail or calendar",
+                        "name": "provider",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "status": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
                                     "type": "string"
                                 }
                             }
@@ -1306,7 +1578,7 @@ const docTemplate = `{
                                 "data": {
                                     "type": "array",
                                     "items": {
-                                        "$ref": "#/definitions/internal_tasks.taskListItem"
+                                        "$ref": "#/definitions/tasks.taskListItem"
                                     }
                                 },
                                 "page": {
@@ -1512,7 +1784,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_nurik_Dev_repos_mengu-backend_internal_email.WebhookPayload"
+                            "$ref": "#/definitions/email.WebhookPayload"
                         }
                     }
                 ],
@@ -1564,7 +1836,7 @@ const docTemplate = `{
         },
         "/webhooks/gmail": {
             "post": {
-                "description": "Receives Pub/Sub push notifications from Google for Gmail mailbox changes (new email, label changes). Idempotent: responds 200 immediately after logging and updates historyId.",
+                "description": "Receives Pub/Sub push notifications from Google for Gmail mailbox changes. Fetches new messages from Gmail API and creates incoming_events.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1582,7 +1854,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_gmail.pubSubPushBody"
+                            "$ref": "#/definitions/gmail.pubSubPushBody"
                         }
                     }
                 ],
@@ -1598,52 +1870,24 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "github_com_nurik_Dev_repos_mengu-backend_internal_email.AttachmentPayload": {
+        "auth.RegisterInput": {
             "type": "object",
             "properties": {
-                "content_type": {
-                    "type": "string",
-                    "example": "application/pdf"
+                "email": {
+                    "type": "string"
                 },
-                "filename": {
-                    "type": "string",
-                    "example": "contract.pdf"
+                "name": {
+                    "type": "string"
                 },
-                "size": {
-                    "type": "integer",
-                    "example": 102400
+                "org_name": {
+                    "type": "string"
                 },
-                "url": {
-                    "type": "string",
-                    "example": "https://storage.example.com/contract.pdf"
+                "password": {
+                    "type": "string"
                 }
             }
         },
-        "github_com_nurik_Dev_repos_mengu-backend_internal_email.WebhookPayload": {
-            "type": "object",
-            "properties": {
-                "attachments": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_nurik_Dev_repos_mengu-backend_internal_email.AttachmentPayload"
-                    }
-                },
-                "body": {
-                    "type": "string",
-                    "example": "We need to review the updated contract terms..."
-                },
-                "from": {
-                    "type": "string",
-                    "format": "email",
-                    "example": "sender@company.com"
-                },
-                "subject": {
-                    "type": "string",
-                    "example": "Contract Review Meeting"
-                }
-            }
-        },
-        "internal_documents.documentListItem": {
+        "documents.documentListItem": {
             "type": "object",
             "properties": {
                 "analyzed_at": {
@@ -1669,7 +1913,7 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_drafts.draftListItem": {
+        "drafts.draftListItem": {
             "type": "object",
             "properties": {
                 "created_at": {
@@ -1705,7 +1949,52 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_email.eventListItem": {
+        "email.AttachmentPayload": {
+            "type": "object",
+            "properties": {
+                "content_type": {
+                    "type": "string",
+                    "example": "application/pdf"
+                },
+                "filename": {
+                    "type": "string",
+                    "example": "contract.pdf"
+                },
+                "size": {
+                    "type": "integer",
+                    "example": 102400
+                },
+                "url": {
+                    "type": "string",
+                    "example": "https://storage.example.com/contract.pdf"
+                }
+            }
+        },
+        "email.WebhookPayload": {
+            "type": "object",
+            "properties": {
+                "attachments": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/email.AttachmentPayload"
+                    }
+                },
+                "body": {
+                    "type": "string",
+                    "example": "We need to review the updated contract terms..."
+                },
+                "from": {
+                    "type": "string",
+                    "format": "email",
+                    "example": "sender@company.com"
+                },
+                "subject": {
+                    "type": "string",
+                    "example": "Contract Review Meeting"
+                }
+            }
+        },
+        "email.eventListItem": {
             "type": "object",
             "properties": {
                 "created_at": {
@@ -1734,7 +2023,7 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_gmail.WatchRequest": {
+        "gmail.WatchRequest": {
             "type": "object",
             "properties": {
                 "email_address": {
@@ -1744,7 +2033,7 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_gmail.WatchResponse": {
+        "gmail.WatchResponse": {
             "type": "object",
             "properties": {
                 "email_address": {
@@ -1761,7 +2050,7 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_gmail.pubSubPushBody": {
+        "gmail.pubSubPushBody": {
             "type": "object",
             "properties": {
                 "message": {
@@ -1786,7 +2075,7 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_tasks.taskListItem": {
+        "tasks.taskListItem": {
             "type": "object",
             "properties": {
                 "assignee_id": {

@@ -43,6 +43,13 @@ func (r *Repository) GetByWebhookSecret(ctx context.Context, secret string) (*mo
 	return org, err
 }
 
+func (r *Repository) Create(ctx context.Context, org *model.Organization) error {
+	row := r.pool.QueryRow(ctx,
+		`INSERT INTO organization (name, slug, webhook_secret, plan) VALUES ($1, $2, $3, $4) RETURNING id, created_at`,
+		org.Name, org.Slug, org.WebhookSecret, org.Plan)
+	return row.Scan(&org.ID, &org.CreatedAt)
+}
+
 func (r *Repository) Update(ctx context.Context, org *model.Organization) error {
 	_, err := r.pool.Exec(ctx,
 		`UPDATE organization SET name = $2, plan = $3 WHERE id = $1`,

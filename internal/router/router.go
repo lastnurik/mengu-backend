@@ -15,8 +15,11 @@ import (
 
 type Handlers struct {
 	Health              gin.HandlerFunc
+	AuthRegister        gin.HandlerFunc
 	AuthLogin           gin.HandlerFunc
 	AuthRefresh         gin.HandlerFunc
+	AuthOAuthURL        gin.HandlerFunc
+	AuthOAuthCallback   gin.HandlerFunc
 	AuthOAuthGoogle     gin.HandlerFunc
 	AuthOAuthMicro      gin.HandlerFunc
 	OrgGet              gin.HandlerFunc
@@ -38,6 +41,9 @@ type Handlers struct {
 	DraftsGet           gin.HandlerFunc
 	DraftsUpdate        gin.HandlerFunc
 	DraftsApprove       gin.HandlerFunc
+	IntegList           gin.HandlerFunc
+	IntegOAuthURL       gin.HandlerFunc
+	IntegDisconnect     gin.HandlerFunc
 }
 
 func New(cfg *config.Config, _ *pgxpool.Pool, logger *slog.Logger, h Handlers) *gin.Engine {
@@ -58,8 +64,11 @@ func New(cfg *config.Config, _ *pgxpool.Pool, logger *slog.Logger, h Handlers) *
 	{
 		auth := api.Group("/auth")
 		{
+			auth.POST("/register", h.AuthRegister)
 			auth.POST("/login", h.AuthLogin)
 			auth.POST("/refresh", h.AuthRefresh)
+			auth.GET("/oauth/url", h.AuthOAuthURL)
+			auth.GET("/oauth/callback", h.AuthOAuthCallback)
 			auth.POST("/oauth/google", h.AuthOAuthGoogle)
 			auth.POST("/oauth/microsoft", h.AuthOAuthMicro)
 		}
@@ -89,6 +98,10 @@ func New(cfg *config.Config, _ *pgxpool.Pool, logger *slog.Logger, h Handlers) *
 			authed.GET("/drafts/:id", h.DraftsGet)
 			authed.PATCH("/drafts/:id", h.DraftsUpdate)
 			authed.PATCH("/drafts/:id/approve", h.DraftsApprove)
+
+			authed.GET("/integrations", h.IntegList)
+			authed.GET("/integrations/oauth/url", h.IntegOAuthURL)
+			authed.DELETE("/integrations/:provider", h.IntegDisconnect)
 		}
 	}
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -13,12 +14,13 @@ import (
 
 type Handler struct {
 	watchRepo *Repository
-	_         *email.Service
+	emailSvc  *email.Service
+	apiClient *APIClient
 	logger    *slog.Logger
 }
 
-func NewHandler(watchRepo *Repository, _ *email.Service, logger *slog.Logger) *Handler {
-	return &Handler{watchRepo: watchRepo, logger: logger}
+func NewHandler(watchRepo *Repository, apiClient *APIClient, emailSvc *email.Service, logger *slog.Logger) *Handler {
+	return &Handler{watchRepo: watchRepo, apiClient: apiClient, emailSvc: emailSvc, logger: logger}
 }
 
 type pubSubPushBody struct {
@@ -31,13 +33,13 @@ type pubSubPushBody struct {
 }
 
 type pubSubData struct {
-	EmailAddress string `json:"emailAddress"`
-	HistoryID    string `json:"historyId"`
+	EmailAddress string      `json:"emailAddress"`
+	HistoryID    json.Number `json:"historyId"`
 }
 
 // Webhook godoc
 // @Summary      Gmail push notification
-// @Description  Receives Pub/Sub push notifications from Google for Gmail mailbox changes (new email, label changes). Idempotent: responds 200 immediately after logging and updates historyId.
+// @Description  Receives Pub/Sub push notifications from Google for Gmail mailbox changes. Fetches new messages from Gmail API and creates incoming_events.
 // @Tags         Gmail
 // @Accept       json
 // @Produce      json
@@ -73,11 +75,58 @@ func (h *Handler) Webhook(c *gin.Context) {
 		return
 	}
 
-	h.watchRepo.UpdateHistoryID(c.Request.Context(), watch.OrgID, data.HistoryID)
+	storedHist, _ := strconv.ParseUint(watch.HistoryID, 10, 64)
+	notifHist, _ := strconv.ParseUint(data.HistoryID.String(), 10, 64)
+	if notifHist <= storedHist {
+		h.logger.Info("gmail webhook: skipping stale notification", "org_id", watch.OrgID, "email", data.EmailAddress, "stored", storedHist, "notified", notifHist)
+		c.JSON(http.StatusOK, gin.H{})
+		return
+	}
 
-	h.logger.Info("gmail webhook: processing notification", "org_id", watch.OrgID, "email", data.EmailAddress)
+	h.logger.Info("gmail webhook: processing notification", "org_id", watch.OrgID, "email", data.EmailAddress, "start_history", watch.HistoryID, "new_history", data.HistoryID)
 
-	_ = watch
+	historyRecords, err := h.apiClient.GetHistory(c.Request.Context(), watch.OrgID, data.EmailAddress, watch.HistoryID)
+	if err != nil {
+		h.logger.Error("gmail webhook: failed to fetch history", "org_id", watch.OrgID, "error", err)
+		c.JSON(http.StatusOK, gin.H{})
+		return
+	}
+
+	processed := 0
+	for _, record := range historyRecords {
+		for _, msg := range record.Messages {
+			fullMsg, err := h.apiClient.GetMessage(c.Request.Context(), watch.OrgID, data.EmailAddress, msg.Id)
+			if err != nil {
+				h.logger.Error("gmail webhook: failed to fetch message", "message_id", msg.Id, "error", err)
+				continue
+			}
+
+			sender, subject, body, err := ExtractEmailFromMessage(fullMsg)
+			if err != nil {
+				h.logger.Error("gmail webhook: failed to extract email fields", "message_id", msg.Id, "error", err)
+				continue
+			}
+			if sender == "" || subject == "" {
+				h.logger.Warn("gmail webhook: skipping message with missing fields", "message_id", msg.Id)
+				continue
+			}
+
+			_, err = h.emailSvc.CreateEventFromEmail(c.Request.Context(), watch.OrgID, "gmail", sender, subject, body, nil)
+			if err != nil {
+				h.logger.Error("gmail webhook: failed to create event", "message_id", msg.Id, "error", err)
+				continue
+			}
+
+			processed++
+		}
+	}
+
+	if err := h.watchRepo.UpdateHistoryID(c.Request.Context(), watch.OrgID, data.HistoryID.String()); err != nil {
+		h.logger.Error("gmail webhook: failed to update history ID", "org_id", watch.OrgID, "error", err)
+	}
+
+	h.logger.Info("gmail webhook: processed messages", "org_id", watch.OrgID, "email", data.EmailAddress, "total", processed, "history_records", len(historyRecords))
+
 	c.JSON(http.StatusOK, gin.H{})
 }
 
@@ -121,17 +170,24 @@ func (h *Handler) InitiateWatch(c *gin.Context) {
 		return
 	}
 
+	historyID, err := h.apiClient.Watch(c.Request.Context(), orgID, req.EmailAddress)
+	if err != nil {
+		h.logger.Error("gmail API watch failed", "org_id", orgID, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "watch_failed", "message": "Failed to initiate Gmail watch: " + err.Error()})
+		return
+	}
+
 	expiresAt := time.Now().Add(7 * 24 * time.Hour)
 	watch := &WatchRow{
 		OrgID:        orgID,
 		EmailAddress: req.EmailAddress,
-		HistoryID:    "1",
-		TopicName:    "mengu-gmail-topic",
+		HistoryID:    historyID,
+		TopicName:    h.apiClient.TopicName(),
 		ExpiresAt:    expiresAt,
 	}
 
 	if err := h.watchRepo.Upsert(c.Request.Context(), watch); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error", "message": "Failed to initiate watch"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error", "message": "Failed to save watch"})
 		return
 	}
 

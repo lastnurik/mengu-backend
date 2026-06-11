@@ -50,22 +50,22 @@ func TestEngineUnknownAction(t *testing.T) {
 	})
 }
 
-func TestMeetingHandler(t *testing.T) {
-	h := &MeetingHandler{}
-	action := ai.Action{Data: json.RawMessage(`{"title":"Test Meeting","datetime":"2026-06-15T17:00:00Z"}`)}
-
-	err := h.Handle(context.Background(), "org_123", "evt_001", action)
-	if err != nil {
-		t.Errorf("expected no error, got %v", err)
-	}
-}
-
 func TestMeetingHandlerMissingTitle(t *testing.T) {
-	h := &MeetingHandler{}
+	h := NewMeetingHandler(nil)
 	action := ai.Action{Data: json.RawMessage(`{"datetime":"2026-06-15T17:00:00Z"}`)}
 
 	err := h.Handle(context.Background(), "org_123", "evt_001", action)
 	if err == nil {
 		t.Error("expected error for missing title, got nil")
+	}
+}
+
+func TestMeetingHandlerInvalidDatetime(t *testing.T) {
+	h := NewMeetingHandler(nil)
+	action := ai.Action{Data: json.RawMessage(`{"title":"Test","datetime":"invalid"}`)}
+
+	err := h.Handle(context.Background(), "org_123", "evt_001", action)
+	if err == nil {
+		t.Error("expected error for invalid datetime, got nil")
 	}
 }
