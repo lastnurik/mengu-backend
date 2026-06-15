@@ -1,21 +1,19 @@
 # PLATFORM.md
 
-## Platform Concept
+## Concept
 
-Mengu AI is an AI-assisted email automation platform designed for organizations that receive high volumes of actionable email. The platform ingests emails, analyzes them with a large language model to extract intent and required actions, then executes those actions through deterministic backend handlers — all while maintaining full human oversight.
+AI-assisted email automation platform. Ingests emails, analyzes with LLM to extract intent and actions, executes actions through deterministic handlers — with human oversight on email sending.
 
-The core insight: the LLM is used only as a planner (producing structured JSON), never as an executor. This keeps the system predictable, auditable, and safe.
+The LLM is **planner only** (structured JSON), never an executor.
 
 ---
 
 ## Target Users
 
-| Role      | Permissions                                    | Use Case                          |
-|-----------|------------------------------------------------|-----------------------------------|
-| Admin     | Full access to organization settings and all events | Configure integrations, manage users |
-| Manager   | View all events, approve drafts, assign tasks  | Oversee email processing pipeline |
-| Employee  | View own tasks and events                      | Execute assigned work             |
-| Viewer    | Read-only access to events and logs            | Audit and compliance              |
+| Role | Permissions |
+|------|-------------|
+| Admin | Full access, configure integrations, manage users |
+| Employee | View events, execute assigned tasks |
 
 ---
 
@@ -23,164 +21,131 @@ The core insight: the LLM is used only as a planner (producing structured JSON),
 
 ### 1. Email Ingestion
 
-Organizations forward emails to Mengu AI via webhook or Gmail Pub/Sub. Each organization has a unique `webhook_secret` (stored in the `organization` table). Supported integrations:
+- **Generic webhook:** `POST /webhooks/email` with `X-Webhook-Secret` header. External services (SendGrid, Mailgun) forward emails as JSON.
+- **Gmail:** Admin calls `POST /api/v1/gmail/watch`. Google Pub/Sub pushes notifications to `POST /webhooks/gmail`. Backend fetches via Gmail API.
 
-- **Generic webhook:** External email services (SendGrid Inbound Parse, Mailgun Routes, custom SMTP) POST JSON to `/webhooks/email` with `X-Webhook-Secret` header.
-- **Gmail:** The admin calls `POST /api/v1/gmail/watch` to initiate a Gmail API watch. Google Cloud Pub/Sub pushes notifications to `/webhooks/gmail`. The backend fetches the email from Gmail API and routes it into the same pipeline.
-
-Each email is stored as an `incoming_event` with its full content, metadata, and attachments.
+Each email → `incoming_events` row with full content, metadata, attachments.
 
 ### 2. AI Analysis
 
-A background worker picks up new events and sends the email content to a configurable LLM (GPT-4, Claude, etc.). The LLM returns a strictly-formatted JSON object containing:
-- An `intent` classification
-- A `confidence` score
-- An ordered array of `actions` to perform
+Background worker picks up new events, sends to LLM. LLM returns structured JSON with:
+- `intent` — classification label
+- `confidence` — 0.0–1.0
+- `actions` — ordered array of `{type, data}` objects
 
-The JSON contract is enforced: free-text responses are rejected.
+Free-text responses are rejected. The LLM only returns JSON.
 
 ### 3. Action Execution
 
-The Action Engine reads the structured action plan and executes each action sequentially through predefined handlers:
+Action Engine executes each action sequentially:
 
-| Action Type        | Handler            | What It Does                                    | Requires Human? |
-|--------------------|--------------------|------------------------------------------------|-----------------|
-| `schedule_meeting` | MeetingHandler     | Creates Google Calendar event                  | No              |
-| `create_task`      | TaskHandler        | Inserts task into internal task list           | No              |
-| `analyze_document` | DocumentHandler    | Extracts text from attachment, sends to AI     | No              |
-| `send_email_draft` | EmailDraftHandler  | Generates and stores email draft (no sending)  | Yes (approval)  |
+| Action | Handler | What It Does | DB Changes |
+|--------|---------|-------------|------------|
+| `schedule_meeting` | MeetingHandler | Creates Google Calendar event | action_logs |
+| `create_task` | TaskHandler | Inserts task | tasks, action_logs |
+| `analyze_document` | DocumentHandler | Downloads PDF from URL, extracts text, AI analysis | document_analysis, action_logs |
+| `send_email_draft` | EmailDraftHandler | AI generates draft body, stores locally + optionally creates Gmail draft | drafts, action_logs |
 
-### 4. Human-in-the-Loop
+### 4. Document Analysis
 
-Email drafts are stored but never sent automatically. A human manager must review and approve drafts before they are dispatched. This ensures:
-- No accidental email sending
-- Human tone/style control
-- Content review for accuracy
+When an email has attachments (PDF), the DocumentHandler:
+1. Reads `attachments[].url` from event metadata
+2. Downloads file to `TEMP_DIR`
+3. Extracts text via `ledongthuc/pdf`
+4. Sends text to AI for summary + risk extraction
+5. Stores in `document_analysis` table
+6. Cleans up temp file
 
-### 5. Full Traceability
+### 5. Human-in-the-Loop (Drafts)
 
-Every action produces an `action_log` entry. From any event, users can see:
-- What the LLM analyzed
-- What actions were generated
-- Whether each action succeeded or failed
-- What data was passed to each handler
+Drafts are **never sent automatically**:
+1. LLM generates the draft body → stored as `pending_approval`
+2. Human reviews via `GET /api/v1/drafts/:id`
+3. Edits via `PATCH /api/v1/drafts/:id`
+4. Approves via `PATCH /api/v1/drafts/:id/approve`
 
----
+**On approve:**
+- If Gmail is connected (OAuth + watch): attempts to send via Gmail API
+  - Success → status `sent`, returns `send_status: "success"`
+  - Failure → status remains `approved`, returns `send_status: "failed"` with error
+- If Gmail not connected: status becomes `approved` only (no send attempt)
 
-## Platform Workflow (Golden Example)
+### 6. Full Traceability
 
-### Incoming Email
-
-```
-From: partner@company.com
-Subject: Contract Review Meeting
-
-We need to schedule a meeting next Monday at 17:00 to discuss the attached contract.
-Please review the document before the meeting and prepare initial comments.
-
-Attachment: contract.pdf
-```
-
-### Step-by-step Platform Execution
-
-1. **Webhook Receives Email** → `POST /webhooks/email` extracts sender, subject, body, and attachments. Stores as `incoming_events` with `status = "new"`.
-
-2. **AI Analysis** → Worker calls LLM with email body. LLM returns:
-   ```json
-   {
-     "intent": "meeting_and_document_review",
-     "confidence": 0.94,
-     "actions": [
-       {"type": "schedule_meeting", "data": {"title": "Contract Review Meeting", "datetime": "2026-06-15T17:00:00Z"}},
-       {"type": "create_task", "data": {"title": "Review attached contract", "assignee_role": "manager"}},
-       {"type": "analyze_document", "data": {"file_name": "contract.pdf"}},
-       {"type": "send_email_draft", "data": {"tone": "formal"}}
-     ]
-   }
-   ```
-   Stored in `ai_analysis`.
-
-3. **Action Engine** → Iterates actions in order:
-   - **schedule_meeting**: MeetingHandler calls Google Calendar API. Event created: "Contract Review Meeting" on Monday 17:00. Logged as success.
-   - **create_task**: TaskHandler inserts task "Review attached contract" with status "new". Logged as success.
-   - **analyze_document**: DocumentHandler loads contract.pdf, extracts text, calls `AIClient.AnalyzeDocument()` which returns summary and risks. Stored in `document_analysis` table. Logged as success.
-   - **send_email_draft**: EmailDraftHandler calls `AIClient.GenerateDraft()` with email context and desired tone. Draft stored in `drafts` table with status `pending_approval`. Logged as success. **Not sent.**
-
-4. **Human Approval** → Manager reviews draft via `PATCH /api/v1/drafts/:id/approve`. Only after this step is the email ready to be sent (via integration or manual action).
-
-### Final State
-
-```
-organization: org_123
-  ├── incoming_events: evt_001 (completed)
-  ├── ai_analysis: analysis_001 (meeting_and_document_review, 0.94)
-  ├── tasks: task_001 (Review attached contract, new)
-  ├── document_analysis: doc_analysis_001 (contract.pdf summary + risks)
-  ├── drafts: draft_001 (pending_approval)
-  └── action_logs:
-      ├── schedule_meeting → success
-      ├── create_task → success
-      ├── analyze_document → success
-      └── send_email_draft → success
-```
+Every action produces an `action_logs` row. For any event you can see what the LLM analyzed, what actions were generated, and whether each succeeded/failed.
 
 ---
 
-## How API Routes Align with Platform Features
+## Platform Workflow
 
-| Platform Feature         | API Endpoint(s)                                                       |
-|--------------------------|-----------------------------------------------------------------------|
-| Authentication           | `POST /api/v1/auth/login`, `/auth/refresh`, `/auth/oauth/*`          |
-| Email Ingestion          | `POST /webhooks/email`, `POST /webhooks/gmail`, `POST /api/v1/gmail/watch` |
-| View Events              | `GET /api/v1/events`, `GET /api/v1/events/:id`                       |
-| View AI Analysis         | `GET /api/v1/events/:id/analysis`                                     |
-| Re-analyze Event         | `POST /api/v1/events/:id/reanalyze`                                   |
-| Manage Tasks             | `GET /api/v1/tasks`, `GET /api/v1/tasks/:id`, `PATCH /api/v1/tasks/:id` |
-| View Action Logs         | `GET /api/v1/events/:id/logs`                                         |
-| View Document Analysis   | `GET /api/v1/events/:id/documents`                                    |
-| View & Approve Drafts    | `GET /api/v1/events/:id/drafts`, `GET /api/v1/drafts/:id`, `PATCH /api/v1/drafts/:id`, `PATCH /api/v1/drafts/:id/approve` |
-| View Calendar Events     | `GET /api/v1/events/:id/calendar-events`                              |
-| Organization Management  | `GET /api/v1/organization`, `PATCH /api/v1/organization`             |
+```
+Email arrives → incoming_events (new)
+  → Worker picks up event
+    → LLM returns action plan (intent + actions)
+    → ai_analysis stored
+    → Action Engine executes:
+      1. schedule_meeting  → Google Calendar
+      2. create_task       → tasks table
+      3. analyze_document  → download PDF → AI → document_analysis
+      4. send_email_draft  → AI generates draft → drafts table (pending_approval)
+    → Event marked completed
+  → Human reviews draft → PATCH /drafts/:id/approve
+```
 
 ---
 
 ## Design Decisions
 
-| Decision                  | Rationale                                                              |
-|---------------------------|------------------------------------------------------------------------|
-| Monolithic Go binary      | Simplifies deployment, no network overhead, single process to monitor  |
-| PostgreSQL only           | Single data store reduces operational complexity                       |
-| No message broker         | Worker polls DB directly; sufficient for MVP volume                    |
-| LLM = planner only        | Keeps the system deterministic and auditable                           |
-| Actions are sequential    | Simplifies error handling and traceability                             |
-| Drafts require human approval | Prevents automated email sending, maintains human control          |
-| RBAC with org scoping     | Multi-tenant from day one, no cross-org data leakage                   |
+| Decision | Rationale |
+|----------|-----------|
+| Monolithic Go binary | Simple deployment, single process |
+| PostgreSQL only | Single data store, less ops |
+| No message broker | DB polling sufficient for MVP |
+| LLM = planner only | Deterministic, auditable |
+| Actions sequential | Simple error handling |
+| Drafts require human approval | Prevent automated sending |
+| Org-scoped RBAC | Multi-tenant from day one |
+
+## Non-Goals
+
+- Automatic email sending
+- Real-time chat/messaging
+- Document editing
+- External integrations beyond Google Calendar + Gmail
+- Mobile/desktop clients
 
 ---
 
-## Non-Goals (Explicitly Out of Scope)
+## Route → Feature Map
 
-- Automatic email sending without human approval
-- Real-time chat or messaging
-- Document editing or collaborative editing
-- Workflow automation beyond the defined action types
-- External integrations beyond Google Calendar and OAuth
-- Mobile or desktop clients (API-only at MVP stage)
-
----
-
-## Platform Boundaries
-
-The platform operates within these strict boundaries:
-
-```
-Email In ──→ Mengu AI ──→ Structured Actions
-                                  │
-                    ┌─────────────┼────────────────┐
-                    │             │                 │
-               Google         Internal            AI
-               Calendar       Tasks               Document
-               API            Table               Pipeline
-```
-
-The LLM never crosses these boundaries. It only sees email text and returns JSON. All external API calls are made by the backend's deterministic handlers.
+| Endpoint | Feature |
+|----------|---------|
+| `POST /api/v1/auth/register` | Authentication |
+| `POST /api/v1/auth/login` | Authentication |
+| `POST /api/v1/auth/refresh` | Token management |
+| `POST /api/v1/auth/oauth/google` | OAuth login |
+| `POST /api/v1/auth/oauth/microsoft` | OAuth login |
+| `GET /api/v1/auth/oauth/url` | OAuth URL |
+| `GET /api/v1/auth/oauth/callback` | OAuth callback |
+| `POST /webhooks/email` | Email ingestion |
+| `POST /webhooks/gmail` | Gmail ingestion |
+| `POST /api/v1/gmail/watch` | Gmail watch (admin) |
+| `GET /api/v1/events` | View events |
+| `GET /api/v1/events/:id` | Event detail |
+| `POST /api/v1/events/:id/reanalyze` | Re-analyze |
+| `GET /api/v1/events/:id/analysis` | View analysis |
+| `GET /api/v1/events/:id/logs` | View action logs |
+| `GET /api/v1/events/:id/documents` | View documents |
+| `GET /api/v1/events/:id/drafts` | View drafts |
+| `GET /api/v1/events/:id/calendar-events` | View calendar events |
+| `GET /api/v1/drafts/:id` | Draft detail |
+| `PATCH /api/v1/drafts/:id` | Edit draft |
+| `PATCH /api/v1/drafts/:id/approve` | Approve/send draft |
+| `GET /api/v1/tasks` | List tasks |
+| `GET /api/v1/tasks/:id` | Task detail |
+| `PATCH /api/v1/tasks/:id` | Update task |
+| `GET /api/v1/integrations` | List integrations |
+| `GET /api/v1/integrations/oauth/url` | Integration OAuth |
+| `DELETE /api/v1/integrations/:provider` | Disconnect |
+| `GET /api/v1/organization` | Org detail |
+| `PATCH /api/v1/organization` | Update org |

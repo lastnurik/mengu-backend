@@ -2,29 +2,13 @@
 
 ## System Architecture Overview
 
-Mengu AI is a modular monolithic backend written in Go using the Gin framework with PostgreSQL as its sole data store. The system follows a deterministic execution model: the LLM acts exclusively as a planner that produces structured JSON, and the backend executes actions through predefined handlers.
-
----
-
-## Core Principle: Separation of Responsibility
+Mengu AI is a modular monolithic Go backend using Gin + PostgreSQL. The core principle: **LLM is planner only, backend is executor only**. The LLM produces structured JSON action plans; the backend executes them through deterministic handlers.
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     LLM (Planner Only)                       │
-│                                                             │
-│  Input:  Email body text                                     │
-│  Output: Structured JSON action plan                         │
-│  Rule:   Never executes actions, never calls APIs            │
-└───────────────────────────┬─────────────────────────────────┘
-                            │ JSON only
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│                  Backend (Executor Only)                      │
-│                                                             │
-│  Receives: Structured JSON from LLM                          │
-│  Executes: Predefined action handlers                        │
-│  Rule:    Never interprets free text, never makes decisions  │
-└─────────────────────────────────────────────────────────────┘
+LLM (Planner Only)                    Backend (Executor Only)
+  Input: Email body text                Receives: Structured JSON from LLM
+  Output: Structured JSON action plan   Executes: Predefined action handlers
+  Rule: Never executes actions          Rule: Never interprets free text
 ```
 
 ---
@@ -32,112 +16,54 @@ Mengu AI is a modular monolithic backend written in Go using the Gin framework w
 ## Module Tree
 
 ```
+cmd/server/main.go          — Entry point, wiring
 /internal
-├── /auth          — JWT + OAuth2 authentication
-├── /organization  — Organization CRUD
-├── /email         — Email processing pipeline
-├── /webhooks      — Webhook ingestion
-├── /ai            — LLM client integration
-├── /tasks         — Task management
-├── /calendar      — Google Calendar integration
-├── /gmail         — Gmail Pub/Sub push receiver + Gmail API client
-├── /documents     — Document analysis management
-├── /drafts        — Email draft management (CRUD + approve)
-├── /actions       — Action engine + handlers (Meeting, Task, Document, EmailDraft)
-├── /db            — Database connection + migrations
-├── /middleware    — Auth middleware, rate limiting
-├── /config        — Configuration loading
-└── /utils         — Shared utilities
+  auth/                     — JWT + OAuth2 authentication
+  organization/             — Organization CRUD
+  email/                    — Email processing pipeline, events, analysis handler
+  webhooks/                 — Webhook ingestion
+  ai/                       — LLM client integration
+  actions/                  — Action engine + handlers (Meeting, Task, Document, EmailDraft)
+  tasks/                    — Task management
+  calendar/                 — Google Calendar integration
+  gmail/                    — Gmail API client, Pub/Sub handler, watch management
+  documents/                — Document analysis management
+  drafts/                   — Email draft management (CRUD + approve)
+  db/                       — Database connection + golang-migrate migrations
+  middleware/               — Auth, CORS, logging
+  config/                   — Environment variable loading
+  integration/              — OAuth integration management
+  oauth/                    — OAuth token repository
+  model/                    — Shared data models
+  router/                   — Gin route registration
 ```
-
-Each module contains `service/`, `repository/`, `handler/`, and `model/` subdirectories.
-
----
-
-## Request Validation
-
-All request payloads are validated at the handler layer before reaching the service layer. Validation rules:
-- Required fields: return 400 with `{"error": "invalid_payload", "message": "Missing required field: <field>"}`
-- Field types: JSON type mismatches are caught by Gin's binding and return 400
-- UUID format: all resource IDs are validated as UUID format; invalid format returns 400
-- Enum fields: `status`, `role`, `action_type`, `source` validate against allowed values; invalid values return 400
-
----
-
-## CORS
-
-CORS is configured at the Gin router level using environment variables:
-- `CORS_ALLOWED_ORIGINS` — comma-separated list of allowed origins (default `*` for development)
-- `CORS_ALLOWED_METHODS` — `GET, POST, PATCH, DELETE, OPTIONS`
-- `CORS_ALLOWED_HEADERS` — `Authorization, Content-Type, X-Webhook-Secret`
-
-CORS middleware is applied to all `/api/v1/*` routes. The `/webhooks/email` endpoint has a separate CORS policy (origin-restricted to the email service's domain or IP range).
-
----
-
-## Graceful Shutdown
-
-The server must handle graceful shutdown on SIGINT and SIGTERM:
-
-```
-1. Listen for OS signals (SIGINT, SIGTERM)
-2. Stop accepting new HTTP requests (shutdown Gin server with configurable timeout)
-3. Cancel the worker's context (stops polling for new events)
-4. Wait for in-flight worker event processing to complete (max WORKER_SHUTDOWN_TIMEOUT)
-5. Close database connection pool
-6. Exit with code 0
-```
-
-Implementation: use Go's `signal.NotifyContext` with a shared cancellable context passed to both the HTTP server and the worker goroutine.
-
----
-
-## Migration Strategy
-
-Database migrations are applied at application startup before the HTTP server starts. Strategy:
-
-1. Directory: `/internal/db/migrations/`
-2. Format: numbered SQL files (e.g. `000001_create_organizations.up.sql`, `000001_create_organizations.down.sql`)
-3. Tool: `golang-migrate/migrate` embedded in the binary via `embed.FS`
-4. Execution: all pending `.up.sql` files are applied in order; if any migration fails, the application exits with an error
-5. Down migrations are not executed automatically (manual rollback only)
-
-The migration files are generated once from the SQL in DATA_MODELS.md and committed to the repository.
 
 ---
 
 ## Request Lifecycle
 
 ```
-HTTP Request
-    │
-    ▼
-┌──────────────┐
-│   Gin Router │─── Middleware stack (auth, logging, recovery)
-└──────┬───────┘
-       │
-       ▼
-┌──────────────┐
-│   Handler    │─── Validates input, calls service
-└──────┬───────┘
-       │
-       ▼
-┌──────────────┐
-│   Service    │─── Business logic
-└──────┬───────┘
-       │
-       ▼
-┌──────────────┐
-│  Repository  │─── Database operations
-└──────┬───────┘
-       │
-       ▼
-   PostgreSQL
+HTTP Request → Gin Router → Middleware stack (auth, logging, recovery)
+  → Handler (validates input, calls service)
+    → Service (business logic)
+      → Repository (database operations)
+        → PostgreSQL
 ```
 
 ---
 
-## Core Interfaces
+## Core Components
+
+### GmailDraftCreator Interface
+
+```go
+type GmailDraftCreator interface {
+    CreateDraft(ctx context.Context, orgID, emailAddress, to, subject, bodyText string) (string, error)
+    SendMessage(ctx context.Context, orgID, emailAddress, to, subject, bodyText string) (string, error)
+}
+```
+
+Used by `EmailDraftHandler` to create Gmail drafts and send messages. This interface breaks the import cycle (`actions` → `gmail` → `email` → `actions`). The concrete `gmail.APIClient` is passed from `main.go`.
 
 ### AIClient
 
@@ -149,441 +75,227 @@ type AIClient interface {
 }
 ```
 
-Responsible for all LLM interactions. Each method uses a hardcoded prompt template (not configurable). The LLM is never given the ability to call APIs or execute actions — it only returns structured data.
+Three hardcoded prompt templates, no configurability. The LLM never calls APIs — it only returns structured data.
 
-### AnalyzeEmail — Prompt Structure
-
-**Purpose:** Parse incoming email into a structured action plan.
-
-**Hardcoded prompt construction:**
+**AnalyzeEmail prompt:**
 ```
-System: You are an email intent classifier. Analyze the email below and return
-a JSON object with:
-- "intent": a short label describing the email's purpose
-- "confidence": a float between 0.0 and 1.0
-- "actions": an array of action objects. Each action has:
-  - "type": one of "schedule_meeting", "create_task", "analyze_document", "send_email_draft"
-  - "data": an object with type-specific fields
+System: You are an email intent classifier. Return JSON with:
+- "intent": short label
+- "confidence": 0.0-1.0
+- "actions": array of {type: "schedule_meeting"|"create_task"|"analyze_document"|"send_email_draft", data: {...}}
 
-For schedule_meeting data: {"title": string, "datetime": ISO8601 string, "participants": []}
-For create_task data: {"title": string, "assignee_role": "manager"|"employee"}
-For analyze_document data: {"file_name": string}
+For schedule_meeting data: {"title", "datetime", "participants"}
+For create_task data: {"title", "assignee_role": "manager"|"employee"}
+For analyze_document data: {"file_name"}
 For send_email_draft data: {"tone": "formal"|"casual"}
 
-Return ONLY valid JSON. No explanations, no markdown, no code blocks.
-
-Email:
-<raw email body>
+Return ONLY valid JSON.
 ```
 
-**Output:** JSON matching the `ai_analysis.actions` schema.
-
-### AnalyzeDocument — Prompt Structure
-
-**Purpose:** Summarize an attached document and extract risks.
-
-**Hardcoded prompt construction:**
+**AnalyzeDocument prompt:**
 ```
-System: Analyze the following document text and return a JSON object with:
-- "summary": a concise 2-3 sentence summary of what the document is about
-- "risks": an array of strings, each describing a potential risk or concern found in the document
-
-Return ONLY valid JSON. No explanations, no markdown, no code blocks.
-
-Document:
-<extracted document text>
+System: Analyze document text. Return JSON: {"summary": string, "risks": [string]}
+Return ONLY valid JSON.
 ```
 
-**Output:** `{"summary": string, "risks": [string, ...]}` stored in `document_analysis`.
-
-### GenerateDraft — Prompt Structure
-
-**Purpose:** Generate an email reply draft acknowledging the actions taken.
-
-**Hardcoded prompt construction:**
+**GenerateDraft prompt:**
 ```
-System: Write a professional email reply based on the original email and the
-actions that were taken. Acknowledge what has been done. Do NOT add information
-about actions that were not taken. Keep the tone as specified.
-
-Return ONLY the email body text. No JSON, no explanations.
-
-Original email:
-<original email body>
-
-Actions taken:
-- schedule_meeting: <meeting title> on <datetime>
-- create_task: <task title>
-- analyze_document: <file name>
-- send_email_draft: (this email)
-
-Tone: <tone from action data>
+System: Write a professional email reply acknowledging actions taken.
+Return ONLY the email body text. No JSON.
 ```
-
-**Output:** Plain text email body string (e.g. `"Hello,\n\nThank you for your email.\nThe meeting has been scheduled and the document is currently under review.\n\nBest regards"`).
 
 ### ActionEngine
 
 ```go
-type ActionEngine interface {
-    Execute(ctx context.Context, analysis AIAnalysis) error
+type Engine struct {
+    repo     *Repository
+    logger   *slog.Logger
+    handlers map[string]ActionHandler
 }
+
+func (e *Engine) Execute(ctx context.Context, orgID, eventID string, actions []Action)
 ```
 
-Iterates over the `actions` array from `ai_analysis` and dispatches each action to the appropriate handler. Execution is sequential and ordered.
+Iterates actions sequentially. Each action is dispatched to its registered handler.
 
-### ActionHandler
+### ActionHandler Interface
 
 ```go
 type ActionHandler interface {
-    Handle(ctx context.Context, action Action) error
+    Handle(ctx context.Context, orgID, eventID string, action Action) error
 }
 ```
 
-Implemented by:
-- `MeetingHandler` — calls Google Calendar API to create calendar events. Payload includes `title`, `datetime`, `participants`. Uses OAuth2 tokens from the `calendar_tokens` table (looked up by `org_id`). Refreshes tokens automatically if `expires_at` has passed.
-- `TaskHandler` — inserts a row into the `tasks` table. Payload includes `title`, `assignee_role`.
-- `DocumentHandler` — loads the attachment file using `metadata.attachments[].url`, downloads it to `TEMP_DIR` (configurable), extracts text content from PDF (using a library like `ledongthuc/pdf` or `unidoc`), calls `AIClient.AnalyzeDocument()` with extracted text, stores result in `document_analysis` table, cleans up the temp file.
-- `EmailDraftHandler` — calls `AIClient.GenerateDraft()` with the email context (original email body + list of actions taken with their results) and desired tone, stores the returned draft in the `drafts` table with `status = 'pending_approval'`. Does NOT send the email.
+Implementations:
 
-### Repository
+| Handler | Action Type | What It Does | DB Changes |
+|---------|-------------|-------------|------------|
+| `MeetingHandler` | `schedule_meeting` | Calls Google Calendar API | `action_logs` |
+| `TaskHandler` | `create_task` | Inserts row in `tasks` | `tasks`, `action_logs` |
+| `DocumentHandler` | `analyze_document` | Downloads attachment from URL, extracts PDF text, calls `AIClient.AnalyzeDocument` | `document_analysis`, `action_logs` |
+| `EmailDraftHandler` | `send_email_draft` | Calls `AIClient.GenerateDraft`, stores in `drafts`, optionally creates Gmail draft | `drafts`, `action_logs` |
 
-```go
-type Repository interface {
-    Create(ctx context.Context, entity interface{}) error
-    GetByID(ctx context.Context, id string) (interface{}, error)
-    Update(ctx context.Context, entity interface{}) error
-}
+#### DocumentHandler Details
+
+1. Reads `metadata.attachments[].url` from the event's metadata
+2. Downloads the file to `TEMP_DIR` (configurable, default `/tmp/mengu`)
+3. Extracts text via `github.com/ledongthuc/pdf`
+4. Sends extracted text to `AIClient.AnalyzeDocument()`
+5. Stores result in `document_analysis` table
+6. Cleans up temp file
+
+If no attachment URL exists, falls back to using the raw email body as document content.
+
+#### EmailDraftHandler Details
+
+1. Extracts recipient/sender from event metadata
+2. Calls `AIClient.GenerateDraft()` with email context and desired tone
+3. Inserts draft into `drafts` table with `status = 'pending_approval'`
+4. If `GmailDraftCreator` is configured:
+   - Looks up `gmail_watch` by `org_id` to get Gmail address
+   - Calls `CreateDraft()` on the Gmail API to create a draft in the user's Gmail
+
+#### Approve Handler Details (drafts/handler.go)
+
+1. Validates draft exists and belongs to org
+2. Updates status to `approved`
+3. If `gmail.APIClient` is configured and `gmail_watch` record exists for the org:
+   - Calls `SendMessage()` to send the email via Gmail API
+   - On success: updates status to `sent`, returns `{status: "sent", send_status: "success"}`
+   - On failure: returns `{status: "approved", send_error: "...", send_status: "failed"}`
+4. If Gmail not configured: returns `{status: "approved"}` without sending
+
+---
+
+## Worker: Async Event Processing
+
+```
+POST /webhooks/email  →  IncomingEvent stored (status=new)
+  → Worker goroutine polls every 5s (SELECT ... FOR UPDATE SKIP LOCKED)
+    → Calls AIClient.AnalyzeEmail()
+    → Stores AIAnalysis in ai_analysis
+    → ActionEngine.Execute()
+      → MeetingHandler    → Google Calendar API     → action_logs
+      → TaskHandler       → tasks table              → action_logs
+      → DocumentHandler   → download PDF → AI       → document_analysis + action_logs
+      → EmailDraftHandler → AI draft → drafts table  → action_logs
+    → incoming_events.status = "completed"
 ```
 
-Standard CRUD interface implemented per entity.
+1. **Polling:** `SELECT ... FROM incoming_events WHERE status='new' ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED`
+2. **Interval:** 5 seconds
+3. **Concurrency:** 1 event at a time
+4. **Error handling:** If LLM fails, event → `failed` (retry via reanalyze). If an action handler fails, that action → `failed` in logs, next action continues.
+5. **Graceful shutdown:** Context cancellation stops the worker loop.
 
 ---
 
 ## Gmail Integration
 
-Gmail does not support direct webhooks. The integration uses Google Cloud Pub/Sub push notifications:
+### Watch Initiation (`POST /api/v1/gmail/watch` — Admin only)
+
+1. Admin calls with `email_address`
+2. Backend calls Gmail API `users.watch(userId, topicName)` with configured Pub/Sub topic
+3. Stores watch in `gmail_watch` table (upsert by `org_id`)
+4. Watch auto-expires after 7 days; background renewal goroutine refreshes it
+
+### Pub/Sub Push Notification (`POST /webhooks/gmail`)
 
 ```
-Gmail mailbox
-    │  (new email arrives)
-    ▼
-Gmail API publishes message ID to Pub/Sub topic
-    │
-    ▼
-Google Cloud Pub/Sub pushes notification to POST /webhooks/gmail
-    │  (JSON with base64-encoded {emailAddress, historyId})
-    ▼
-/gmail handler
-    ├── Verifies Google-issued JWT (Authorization header)
-    ├── Decodes base64 data → extracts emailAddress + historyId
-    ├── Looks up gmail_watch by email_address → gets org_id
-    ├── Calls Gmail API users.history.list(startHistoryId)
-    ├── For each new message ID:
-    │   ├── Calls Gmail API users.messages.get(id)
-    │   └── Extracts From, Subject, Body, Attachments
-    └── Routes each extracted email into the same incoming_events pipeline
-        (same Go function as POST /webhooks/email, no additional HTTP call)
+Gmail mailbox → Gmail API → Pub/Sub topic → POST /webhooks/gmail
+  → Verify Google-issued OIDC JWT (idtoken.Validate)
+  → Decode base64 data → {emailAddress, historyId}
+  → Look up gmail_watch by emailAddress → get org_id
+  → Call Gmail API users.history.list(startHistoryId=stored)
+  → For each new message:
+    → Call Gmail API users.messages.get(id)
+    → Extract From, Subject, Body, Attachments
+    → Call email.Service.CreateEventFromEmail()
+      (same function as POST /webhooks/email, no HTTP call)
+  → Update gmail_watch.history_id
 ```
 
-**This is a bridge layer only.** The Gmail handler never calls `POST /webhooks/email` over HTTP — it calls the same `incoming_events` repository function directly. This keeps the pipeline unified while adding Gmail support without modifying the existing webhook endpoint.
+**JWT verification** uses `google.golang.org/api/idtoken.Validate()`. Validates that:
+- JWT is a valid Google-issued OIDC token
+- Issuer is `accounts.google.com`
+- Token has `email` claim
 
-### Watch Initiation
-
-`POST /api/v1/gmail/watch` must be called once per organization to start the Gmail watch. Implementation:
-
-1. Admin calls the endpoint with the target email address
-2. Backend calls `Gmail API users.watch(userId, topicName)` with the configured Pub/Sub topic
-3. Gmail returns `{historyId, expiration}`
-4. Backend stores the watch in `gmail_watch` table (upsert by `org_id`)
-5. The watch auto-expires after 7 days
+The handler always returns 200 to Google (Pub/Sub ack protocol), even on errors.
 
 ### Watch Renewal
 
-A background goroutine runs every hour and checks `gmail_watch` for records where `expires_at < now() + 24h`. For each expiring watch:
-
-1. Calls `Gmail API users.watch()` again with the same topic
-2. Updates `history_id`, `expires_at`, and `updated_at` in the table
-
-This goroutine follows the same graceful shutdown pattern as the main email worker (context cancellation on SIGINT/SIGTERM).
-
-### Internal Routing
-
-When the Gmail handler has extracted email data from Gmail API, it calls the same pipeline as the webhook handler:
-
-```go
-// gmail/handler.go (simplified)
-func (h *Handler) processMessage(ctx context.Context, msg *gmail.Message, orgID string) error {
-    extracted := extractEmail(msg) // From, Subject, Body, Attachments
-    _, err := h.emailService.CreateEvent(ctx, orgID, CreateEventInput{
-        Source:      "gmail",
-        RawContent:  extracted.Body,
-        Sender:      extracted.From,
-        Subject:     extracted.Subject,
-        Attachments: extracted.Attachments,
-    })
-    return err
-}
-```
-
-The `emailService.CreateEvent` function is the same function called by the webhook handler.
+A background goroutine checks every hour for watches expiring within 24 hours and renews them.
 
 ---
 
-## Async Processing: The Email Worker
-
-```
-POST /webhooks/email
-       │
-       ▼
-  IncomingEvent stored (status=new)
-       │
-       ▼
-  Worker goroutine picks up event
-       │
-       ▼
-  Calls AIClient.AnalyzeEmail()
-       │
-       ▼
-  Stores AIAnalysis in ai_analysis
-       │
-       ▼
-   ActionEngine.Execute()
-       │
-       ├── MeetingHandler    → Google Calendar API           → action_logs
-       ├── TaskHandler       → tasks table                   → action_logs
-       ├── DocumentHandler   → AIClient.AnalyzeDocument()
-       │                        → document_analysis table    → action_logs
-       └── EmailDraftHandler → AIClient.GenerateDraft()
-                                → drafts table (NOT sent)    → action_logs
-       │
-       ▼
-  incoming_events.status = "completed"
-```
-
-### Worker Implementation Details
-
-**Polling:** The worker runs an infinite loop inside a goroutine. On each iteration it queries for the next new event:
-
-```sql
-SELECT id, org_id, source, raw_content, metadata, created_at
-FROM incoming_events
-WHERE status = 'new'
-ORDER BY created_at ASC
-LIMIT 1
-FOR UPDATE SKIP LOCKED;
-```
-
-`FOR UPDATE SKIP LOCKED` prevents multiple worker instances (if scaled) from picking the same event.
-
-**Polling interval:** 5 seconds between iterations when no events are found.
-
-**Concurrency:** 1 event at a time. Processing a single event (AI analysis + action execution) is sequential within the goroutine.
-
-**Error handling:**
-- If `AIClient.AnalyzeEmail` fails (timeout, invalid JSON, network error): set `incoming_events.status = 'failed'`, log the error, continue to next event. The user can retry via `POST /api/v1/events/:id/reanalyze`.
-- If an individual action handler fails: log the action as `status='failed'` with `error_message`, continue to the next action (do not halt the action chain).
-- If `ActionEngine.Execute` itself panics: recover with `recover()`, set event status to `'failed'`.
-
-**Shutdown:** The worker receives a cancellable context. When the server shuts down, the context is cancelled, the worker finishes processing the current event, then exits.
-
----
-
-## Webhook → Organization Resolution
-
-When `POST /webhooks/email` is called:
-
-1. Extract `X-Webhook-Secret` header value
-2. Query: `SELECT id, name, slug, plan FROM organization WHERE webhook_secret = $1`
-3. If no match: return 401 with `{"error": "unauthorized", "message": "Invalid webhook secret"}`
-4. If match: use `organization.id` as `org_id` for all created records
-5. The `X-Webhook-Secret` is NOT stored in `incoming_events` metadata — it is only used for org lookup at the webhook handler level
-
-This resolution happens once per webhook request, before any event processing.
-
----
-
-## Database Connection
-
-PostgreSQL is accessed via `pgx` driver (`jackc/pgx/v5`). Connection pooling is configured with environment variables. Migrations are applied at startup using `golang-migrate` or embedded SQL files.
-
----
-
-## Configuration
-
-All configuration is loaded from environment variables:
-
-| Variable                     | Description                                    |
-|------------------------------|------------------------------------------------|
-| DATABASE_URL                 | PostgreSQL connection string                   |
-| JWT_SECRET                   | JWT signing secret                             |
-| JWT_ACCESS_TTL               | Access token TTL (default 1h)                  |
-| JWT_REFRESH_TTL              | Refresh token TTL (default 7d)                 |
-| LLM_API_URL                  | LLM provider endpoint                          |
-| LLM_API_KEY                  | LLM API key                                    |
-| LLM_MODEL                    | Model name (e.g. gpt-4)                        |
-| LLM_TIMEOUT                  | LLM request timeout (default 30s)              |
-| GOOGLE_CLIENT_ID             | Google OAuth client ID                         |
-| GOOGLE_CLIENT_SECRET         | Google OAuth client secret                     |
-| MICROSOFT_CLIENT_ID          | Microsoft OAuth client ID                      |
-| MICROSOFT_CLIENT_SECRET      | Microsoft OAuth client secret                  |
-| GOOGLE_CALENDAR_CREDENTIALS  | Google service account JSON (optional)         |
-| GMAIL_TOPIC_NAME            | Google Cloud Pub/Sub topic for Gmail notifications |
-| GMAIL_SUBSCRIPTION_NAME     | Google Cloud Pub/Sub subscription name          |
-| GMAIL_SERVICE_ACCOUNT       | Google service account email for Gmail API auth |
-| PORT                         | HTTP server port (default 8080)                |
-| TEMP_DIR                     | Directory for temporary file downloads (default /tmp/mengu) |
-| WORKER_POLL_INTERVAL         | Worker polling interval in seconds (default 5) |
-| WORKER_SHUTDOWN_TIMEOUT      | Max seconds to wait for worker to finish (default 30) |
-| CORS_ALLOWED_ORIGINS         | Comma-separated allowed origins (default *)    |
-| SHUTDOWN_TIMEOUT             | HTTP server shutdown timeout (default 10s)     |
-| LOG_LEVEL                    | Log level: debug, info, warn, error (default info) |
-| LOG_FORMAT                   | Log format: text or json (default json)        |
-| RATE_LIMIT_REQUESTS          | Max requests per window per client (default 100) |
-| RATE_LIMIT_WINDOW            | Rate limit window in seconds (default 60)      |
-| HEALTH_BIND                  | Separate bind address for health check (optional) |
-
----
-
-## Logging
-
-Structured logging with `log/slog` (Go 1.21+ standard library). No external logging dependency.
-
-**Configuration:**
-- `LOG_LEVEL` controls minimum level; maps to `slog.Level`
-- `LOG_FORMAT` selects handler:
-  - `json` → `slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})`
-  - `text` → `slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level})`
-
-**Context attributes** are attached using `slog.With()` on a derived logger passed through middleware:
-- `request_id` — per-request UUID (generated by middleware)
-- `org_id` — resolved from auth (if available)
-- `user_id` — resolved from auth (if available)
-- `event_id` — for worker and event-scoped operations
-
-**Error logging:** errors are logged once at the boundary (handler or worker loop) using `slog.Error`. Never log and return the same error — that creates noise.
-
----
-
-## Observability (Extension Point)
-
-Prometheus metrics and OpenTelemetry tracing are **not required for MVP** but the architecture should accommodate them:
-- Reserve a `/metrics` endpoint path for Prometheus scraping
-- Use `context.Context` propagation consistently (already required) — OTEL can attach spans transparently
-- Key metrics to instrument later: request count/duration per route, worker event processing duration, LLM latency, action handler success/failure counts
-
----
-
-## Health Check
-
-A dedicated `GET /health` endpoint returns the server's liveness state. It is registered **before** the API router group and is not subject to authentication or rate limiting.
-
-**Response (200):**
-```json
-{
-  "status": "ok",
-  "version": "1.0.0",
-  "db": "connected"
-}
-```
-
-If the database connection pool is closed or unreachable, return **503** with `{"status": "unavailable", "db": "disconnected"}`.
-
-If `HEALTH_BIND` is set, a separate HTTP listener is started on that address serving only the health endpoint (useful for container orchestrator probes without exposing the full API).
-
----
-
-## Rate Limiting
-
-Rate limiting is applied at the middleware level via a **token bucket** or **sliding window** algorithm (in-memory, no external dependency).
+## Configuration (Environment Variables)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `RATE_LIMIT_REQUESTS` | 100 | Max requests per window |
-| `RATE_LIMIT_WINDOW` | 60 | Window size in seconds |
+| `DATABASE_URL` | — | PostgreSQL connection string |
+| `JWT_SECRET` | — | JWT signing secret |
+| `JWT_ACCESS_TTL` | `1h` | Access token TTL |
+| `JWT_REFRESH_TTL` | `168h` | Refresh token TTL |
+| `LLM_API_URL` | — | LLM provider endpoint |
+| `LLM_API_KEY` | — | LLM API key |
+| `LLM_MODEL` | — | Model name |
+| `LLM_TIMEOUT` | `30s` | LLM request timeout |
+| `GOOGLE_CLIENT_ID` | — | Google OAuth client ID |
+| `GOOGLE_CLIENT_SECRET` | — | Google OAuth client secret |
+| `GMAIL_TOPIC_NAME` | — | Pub/Sub topic for Gmail |
+| `TEMP_DIR` | `/tmp/mengu` | Temp file download dir |
+| `PORT` | `8080` | HTTP port |
+| `WORKER_POLL_INTERVAL` | `5s` | Worker poll interval |
+| `SHUTDOWN_TIMEOUT` | `10s` | Graceful shutdown timeout |
+| `CORS_ALLOWED_ORIGINS` | `*` | Allowed CORS origins |
+| `LOG_LEVEL` | `info` | debug/info/warn/error |
+| `LOG_FORMAT` | `json` | text or json |
 
-- Keyed by client IP for unauthenticated requests, by `user_id` for authenticated requests
-- Returns `429 Too Many Requests` with standard error envelope when exceeded
-- `/health` is exempt from rate limiting
-- Webhook endpoints (`/webhooks/*`) have a separate higher limit
+---
+
+## Graceful Shutdown
+
+```
+SIGINT/SIGTERM → cancel shared context
+  → Gin HTTP server stops accepting requests (Shutdown with timeout)
+  → Worker goroutine exits on context cancellation
+  → pool.Close()
+```
+
+---
+
+## Database Migrations
+
+- Tool: `golang-migrate/migrate` (embedded via `embed.FS`)
+- Location: `internal/db/migrations/`
+- Applied at startup before HTTP server starts
+- Down migrations are manual only
+
+---
+
+## Migration SQL
+
+Located at `internal/db/migrations/000001_init.up.sql` and `000002_oauth_tokens.up.sql`.
+
+Full schema also documented in `DATA_MODELS.md`.
 
 ---
 
 ## LLM Graceful Degradation
 
-The LLM is the only external dependency that can block event processing. If the LLM is unreachable or returns errors:
-
-1. **Worker retries:** The worker logs the failure and sets the event to `status = 'failed'`. It does **not** block or retry indefinitely.
-2. **Re-analysis:** Users can retry via `POST /api/v1/events/:id/reanalyze` after the LLM recovers.
-3. **Partial action failures:** If an individual action handler fails (e.g. Google Calendar API is down), the action is logged with `status = 'failed'` and execution continues to the next action. The event is not marked `failed` for individual action failures.
-4. **LLM response validation:** The `AIClient` validates that the LLM response is valid JSON matching the expected schema. Invalid responses are treated as errors and logged, and the event goes to `failed` status.
-5. **No automatic retry loop** beyond a single attempt per LLM call. Circuit breaker is deferred to post-MVP.
-
----
-
-## Idempotency
-
-Webhook ingestion uses `Message-ID` header (or equivalent unique identifier) stored in `metadata` to detect duplicate emails. If a duplicate is detected, the existing `event_id` is returned with `status: "duplicate"` and no new event is created.
+1. Worker sets event to `failed` on LLM failure (no retry)
+2. User can re-trigger via `POST /api/v1/events/:id/reanalyze`
+3. Individual action failures don't mark the event `failed` — logged to `action_logs` with `status=failed`, next action continues
+4. Invalid LLM JSON responses are treated as errors → event `failed`
 
 ---
 
 ## Traceability
 
-Every action execution produces an `action_logs` row. The chain is fully traceable:
+Every action produces an `action_logs` row:
 
 ```
 Event → AI Analysis → Action Logs (one per action)
 ```
 
-Each log entry stores the action type, input payload, execution status, and any error message.
-
----
-
-## Golden Example Walkthrough
-
-Mapped to the architecture:
-
-```
-1. POST /webhooks/email
-   → webhooks/handler.go validates payload
-   → email/service.go extracts sender, subject, body, attachments
-   → incoming_events repository stores row (status=new)
-
-2. Worker picks up event (status=new)
-   → ai/service.go calls AIClient.AnalyzeEmail(ctx, raw_content)
-   → LLM returns structured JSON with intent, confidence, actions[]
-
-3. ai_analysis stored
-   → actions/service.go stores analysis in ai_analysis table
-
-4. ActionEngine.Execute()
-   → actions/engine.go iterates actions sequentially (ordered)
-   → dispatches each action by type:
-
-   a) schedule_meeting
-      → MeetingHandler.Handle()
-      → calls Google Calendar API → event created
-      → action_logs: type=schedule_meeting, status=success
-
-   b) create_task
-      → TaskHandler.Handle()
-      → inserts row into tasks table
-      → action_logs: type=create_task, status=success
-
-   c) analyze_document
-      → DocumentHandler.Handle()
-      → loads contract.pdf, extracts text
-      → calls AIClient.AnalyzeDocument(ctx, text)
-      → stores summary + risks in document_analysis table
-      → action_logs: type=analyze_document, status=success
-
-   d) send_email_draft
-      → EmailDraftHandler.Handle()
-      → calls AIClient.GenerateDraft(ctx, prompt)
-      → stores returned draft in drafts table (status=pending_approval)
-      → action_logs: type=send_email_draft, status=success
-
-5. incoming_events.status updated to "completed"
-
-6. Human reviews draft via PATCH /api/v1/drafts/:id/approve
-```
+Each log stores: action type, input payload, execution status, error message.
