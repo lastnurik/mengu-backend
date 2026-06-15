@@ -89,7 +89,11 @@ func New(cfg *config.Config, _ *pgxpool.Pool, logger *slog.Logger, h Handlers) *
 			authed.GET("/events/:id/drafts", h.EventsGetDrafts)
 			authed.GET("/events/:id/calendar-events", h.EventsGetCalendar)
 
-			authed.POST("/gmail/watch", h.GmailWatch)
+			admin := authed.Group("")
+			admin.Use(middleware.AdminRequired())
+			{
+				admin.POST("/gmail/watch", h.GmailWatch)
+			}
 
 			authed.GET("/tasks", h.TasksList)
 			authed.GET("/tasks/:id", h.TasksGet)

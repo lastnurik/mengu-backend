@@ -82,7 +82,6 @@ func main() {
 		logger.Error("failed to connect to database", "error", err)
 		os.Exit(1)
 	}
-	defer pool.Close()
 
 	if err := db.RunMigrations(cfg.DatabaseURL); err != nil {
 		logger.Error("failed to run migrations", "error", err)
@@ -114,8 +113,8 @@ func main() {
 	actionEngine := actions.NewEngine(actionsRepo, logger)
 	actionEngine.Register("schedule_meeting", actions.NewMeetingHandler(calClient))
 	actionEngine.Register("create_task", actions.NewTaskHandler(pool))
-	actionEngine.Register("analyze_document", actions.NewDocumentHandler(pool, aiClient))
-	actionEngine.Register("send_email_draft", actions.NewEmailDraftHandler(pool, aiClient))
+	actionEngine.Register("analyze_document", actions.NewDocumentHandler(pool, aiClient, cfg.TempDir))
+	actionEngine.Register("send_email_draft", actions.NewEmailDraftHandler(pool, aiClient, gmailAPIClient))
 
 	worker := actions.NewWorker(pool, aiClient, actionEngine, logger, cfg.WorkerPollInterval)
 	go worker.Run(ctx)
@@ -129,7 +128,7 @@ func main() {
 	docsHandler := documents.NewHandler(docsRepo)
 
 	draftsRepo := drafts.NewRepository(pool)
-	draftsHandler := drafts.NewHandler(draftsRepo)
+	draftsHandler := drafts.NewHandler(draftsRepo, pool, gmailAPIClient)
 
 	gmailRepo := gmail.NewRepository(pool)
 	gmailHandler := gmail.NewHandler(gmailRepo, gmailAPIClient, emailSvc, logger)

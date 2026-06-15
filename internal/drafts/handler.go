@@ -7,14 +7,18 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/nurik/Dev/repos/mengu-backend/internal/gmail"
 )
 
 type Handler struct {
-	repo *Repository
+	repo     *Repository
+	pool     *pgxpool.Pool
+	gmailCli *gmail.APIClient
 }
 
-func NewHandler(repo *Repository) *Handler {
-	return &Handler{repo: repo}
+func NewHandler(repo *Repository, pool *pgxpool.Pool, gmailCli *gmail.APIClient) *Handler {
+	return &Handler{repo: repo, pool: pool, gmailCli: gmailCli}
 }
 
 type draftListItem struct {
@@ -22,7 +26,7 @@ type draftListItem struct {
 	EventID   string `json:"event_id" example:"evt_001" format:"uuid"`
 	Recipient string `json:"recipient" example:"partner@company.com"`
 	Subject   string `json:"subject" example:"Meeting Confirmation"`
-	Status    string `json:"status" example:"pending_review" enums:"pending_review,approved,sent"`
+	Status    string `json:"status" example:"pending_approval" enums:"pending_approval,approved,sent,rejected"`
 	CreatedAt string `json:"created_at" example:"2026-06-10T12:03:00Z"`
 }
 
@@ -182,7 +186,7 @@ func (h *Handler) Approve(c *gin.Context) {
 	orgID := c.GetString("org_id")
 	id := c.Param("id")
 
-	_, err := h.repo.GetByID(c.Request.Context(), id, orgID)
+	draft, err := h.repo.GetByID(c.Request.Context(), id, orgID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "draft_not_found", "message": "Draft with the specified ID was not found"})
@@ -195,6 +199,29 @@ func (h *Handler) Approve(c *gin.Context) {
 	if err := h.repo.UpdateStatus(c.Request.Context(), id, orgID, "approved"); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error", "message": "Failed to approve draft"})
 		return
+	}
+
+	if h.gmailCli != nil && h.pool != nil {
+		var gmailAddress string
+		if err := h.pool.QueryRow(c.Request.Context(),
+			`SELECT email_address FROM gmail_watch WHERE org_id = $1`, orgID).Scan(&gmailAddress); err == nil {
+			if _, err := h.gmailCli.SendMessage(c.Request.Context(), orgID, gmailAddress, draft.Recipient, draft.Subject, draft.Body); err != nil {
+				c.JSON(http.StatusOK, gin.H{
+					"id":          id,
+					"status":      "approved",
+					"send_error":  err.Error(),
+					"send_status": "failed",
+				})
+				return
+			}
+			h.repo.UpdateStatus(c.Request.Context(), id, orgID, "sent")
+			c.JSON(http.StatusOK, gin.H{
+				"id":          id,
+				"status":      "sent",
+				"send_status": "success",
+			})
+			return
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{

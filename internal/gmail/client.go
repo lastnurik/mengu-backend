@@ -28,7 +28,11 @@ func NewAPIClient(oauthRepo *oauth.Repository, topicName, clientID, clientSecret
 			ClientSecret: clientSecret,
 			RedirectURL:  redirectURL,
 			Endpoint:     google.Endpoint,
-			Scopes:       []string{"https://www.googleapis.com/auth/gmail.readonly"},
+			Scopes: []string{
+				"https://www.googleapis.com/auth/gmail.readonly",
+				"https://www.googleapis.com/auth/gmail.compose",
+				"https://www.googleapis.com/auth/gmail.send",
+			},
 		},
 	}
 }
@@ -126,6 +130,52 @@ func (c *APIClient) GetMessage(ctx context.Context, orgID, emailAddress, message
 	return msg, nil
 }
 
+func (c *APIClient) CreateDraft(ctx context.Context, orgID, emailAddress, to, subject, bodyText string) (string, error) {
+	svc, err := c.NewService(ctx, orgID)
+	if err != nil {
+		return "", err
+	}
+
+	msg := &gmail.Message{
+		Raw: encodeRFC2822(to, subject, bodyText),
+	}
+
+	draft, err := svc.Users.Drafts.Create(emailAddress, &gmail.Draft{Message: msg}).Do()
+	if err != nil {
+		return "", fmt.Errorf("failed to create gmail draft: %w", err)
+	}
+	return draft.Id, nil
+}
+
+func (c *APIClient) SendMessage(ctx context.Context, orgID, emailAddress, to, subject, bodyText string) (string, error) {
+	svc, err := c.NewService(ctx, orgID)
+	if err != nil {
+		return "", err
+	}
+
+	msg := &gmail.Message{
+		Raw: encodeRFC2822(to, subject, bodyText),
+	}
+
+	sent, err := svc.Users.Messages.Send(emailAddress, msg).Do()
+	if err != nil {
+		return "", fmt.Errorf("failed to send gmail message: %w", err)
+	}
+	return sent.Id, nil
+}
+
+func encodeRFC2822(to, subject, body string) string {
+	raw := fmt.Sprintf("To: %s\r\nSubject: %s\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n%s", to, subject, body)
+	return base64.URLEncoding.EncodeToString([]byte(raw))
+}
+
+type ExtractedAttachment struct {
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type"`
+	Size        int64  `json:"size"`
+	URL         string `json:"url"`
+}
+
 func ExtractEmailFromMessage(msg *gmail.Message) (sender, subject, body string, err error) {
 	for _, header := range msg.Payload.Headers {
 		switch strings.ToLower(header.Name) {
@@ -138,6 +188,40 @@ func ExtractEmailFromMessage(msg *gmail.Message) (sender, subject, body string, 
 
 	body = extractBody(msg.Payload)
 	return
+}
+
+func ExtractEmailFromMessageWithAttachments(msg *gmail.Message) (sender, subject, body string, attachments []ExtractedAttachment, err error) {
+	for _, header := range msg.Payload.Headers {
+		switch strings.ToLower(header.Name) {
+		case "from":
+			sender = header.Value
+		case "subject":
+			subject = header.Value
+		}
+	}
+
+	body = extractBody(msg.Payload)
+	attachments = extractAttachments(msg.Payload)
+	return
+}
+
+func extractAttachments(part *gmail.MessagePart) []ExtractedAttachment {
+	var atts []ExtractedAttachment
+
+	if part.Filename != "" && part.Body != nil && part.Body.AttachmentId != "" {
+		atts = append(atts, ExtractedAttachment{
+			Filename:    part.Filename,
+			ContentType: part.MimeType,
+			Size:        int64(part.Body.Size),
+			URL:         "",
+		})
+	}
+
+	for _, sub := range part.Parts {
+		atts = append(atts, extractAttachments(sub)...)
+	}
+
+	return atts
 }
 
 func extractBody(part *gmail.MessagePart) string {

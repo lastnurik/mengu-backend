@@ -3,14 +3,19 @@ package gmail
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/email"
+	"google.golang.org/api/idtoken"
 )
+
+var gmailPubSubAudience = ""
 
 type Handler struct {
 	watchRepo *Repository
@@ -39,7 +44,7 @@ type pubSubData struct {
 
 // Webhook godoc
 // @Summary      Gmail push notification
-// @Description  Receives Pub/Sub push notifications from Google for Gmail mailbox changes. Fetches new messages from Gmail API and creates incoming_events.
+// @Description  Receives Pub/Sub push notifications from Google for Gmail mailbox changes. Verifies Google-issued JWT, fetches new messages from Gmail API and creates incoming_events.
 // @Tags         Gmail
 // @Accept       json
 // @Produce      json
@@ -47,6 +52,12 @@ type pubSubData struct {
 // @Success      200  {object}  object{}
 // @Router       /webhooks/gmail [post]
 func (h *Handler) Webhook(c *gin.Context) {
+	if err := h.verifyGmailJWT(c); err != nil {
+		h.logger.Warn("gmail webhook: JWT verification failed", "error", err)
+		c.JSON(http.StatusOK, gin.H{})
+		return
+	}
+
 	var body pubSubPushBody
 	if err := c.ShouldBindJSON(&body); err != nil {
 		h.logger.Warn("gmail webhook: invalid push body", "error", err)
@@ -101,7 +112,7 @@ func (h *Handler) Webhook(c *gin.Context) {
 				continue
 			}
 
-			sender, subject, body, err := ExtractEmailFromMessage(fullMsg)
+			sender, subject, body, extractedAtts, err := ExtractEmailFromMessageWithAttachments(fullMsg)
 			if err != nil {
 				h.logger.Error("gmail webhook: failed to extract email fields", "message_id", msg.Id, "error", err)
 				continue
@@ -111,7 +122,17 @@ func (h *Handler) Webhook(c *gin.Context) {
 				continue
 			}
 
-			_, err = h.emailSvc.CreateEventFromEmail(c.Request.Context(), watch.OrgID, "gmail", sender, subject, body, nil)
+			var payloadAtts []email.AttachmentPayload
+			for _, a := range extractedAtts {
+				payloadAtts = append(payloadAtts, email.AttachmentPayload{
+					Filename:    a.Filename,
+					ContentType: a.ContentType,
+					Size:        a.Size,
+					URL:         a.URL,
+				})
+			}
+
+			_, err = h.emailSvc.CreateEventFromEmail(c.Request.Context(), watch.OrgID, "gmail", sender, subject, body, payloadAtts)
 			if err != nil {
 				h.logger.Error("gmail webhook: failed to create event", "message_id", msg.Id, "error", err)
 				continue
@@ -196,4 +217,31 @@ func (h *Handler) InitiateWatch(c *gin.Context) {
 		EmailAddress: req.EmailAddress,
 		ExpiresAt:    expiresAt.Format(time.RFC3339),
 	})
+}
+
+func (h *Handler) verifyGmailJWT(c *gin.Context) error {
+	auth := c.GetHeader("Authorization")
+	if auth == "" {
+		return fmt.Errorf("missing Authorization header")
+	}
+
+	parts := strings.SplitN(auth, " ", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+		return fmt.Errorf("invalid Authorization header format")
+	}
+
+	payload, err := idtoken.Validate(c.Request.Context(), parts[1], gmailPubSubAudience)
+	if err != nil {
+		return fmt.Errorf("JWT validation failed: %w", err)
+	}
+
+	if payload.Issuer != "accounts.google.com" && payload.Issuer != "https://accounts.google.com" {
+		return fmt.Errorf("unexpected JWT issuer: %s", payload.Issuer)
+	}
+
+	if email := payload.Claims["email"]; email == "" {
+		return fmt.Errorf("JWT missing email claim")
+	}
+
+	return nil
 }

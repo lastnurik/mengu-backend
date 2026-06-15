@@ -49,9 +49,12 @@ func (h *EventDetailHandler) GetWithDetails(c *gin.Context) {
 		return
 	}
 
-	analysis, _ := h.analysisRepo.GetLatestByEventID(c.Request.Context(), id, orgID)
+	analysis, err := h.analysisRepo.GetLatestByEventID(c.Request.Context(), id, orgID)
+	if err != nil {
+		analysis = nil
+	}
 
-	logsResult, _ := h.actionsRepo.ListLogs(c.Request.Context(), actions.LogListParams{
+	logsResult, err := h.actionsRepo.ListLogs(c.Request.Context(), actions.LogListParams{
 		EventID: id,
 		OrgID:   orgID,
 		Page:    1,

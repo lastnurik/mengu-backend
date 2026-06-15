@@ -136,6 +136,7 @@ func (h *EventsHandler) Reanalyze(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"status": "processing",
+		"analysis_id": id + "_reanalysis",
+		"status":      "processing",
 	})
 }

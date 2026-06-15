@@ -1,6 +1,7 @@
 package documents
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
@@ -63,15 +64,15 @@ func (h *Handler) ListByEvent(c *gin.Context) {
 
 	items := make([]documentListItem, 0, len(docs))
 	for _, d := range docs {
-		riskCount := 0
+		var risksList []string
 		if len(d.Risks) > 0 {
-			riskCount = 1
+			json.Unmarshal(d.Risks, &risksList)
 		}
 		items = append(items, documentListItem{
 			ID:        d.ID,
 			FileName:  d.FileName,
 			Summary:   d.Summary,
-			Risks:     riskCount,
+			Risks:     len(risksList),
 			CreatedAt: d.AnalyzedAt.Format(time.RFC3339),
 		})
 	}

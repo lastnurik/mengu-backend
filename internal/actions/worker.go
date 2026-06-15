@@ -118,19 +118,6 @@ func (w *Worker) processEvent(ctx context.Context, eventID, orgID, content strin
 
 	w.engine.Execute(ctx, orgID, eventID, result.Actions)
 
-	hasDraft := false
-	for _, a := range result.Actions {
-		if a.Type == "send_email_draft" {
-			hasDraft = true
-			break
-		}
-	}
-	if !hasDraft {
-		w.engine.Execute(ctx, orgID, eventID, []ai.Action{
-			{Type: "send_email_draft", Data: json.RawMessage(`{"tone":"formal"}`)},
-		})
-	}
-
 	w.updateEventStatus(ctx, eventID, orgID, "completed")
 }
 

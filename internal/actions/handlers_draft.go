@@ -10,13 +10,19 @@ import (
 	"github.com/nurik/Dev/repos/mengu-backend/internal/ai"
 )
 
-type EmailDraftHandler struct {
-	pool *pgxpool.Pool
-	cli  *ai.Client
+type GmailDraftCreator interface {
+	CreateDraft(ctx context.Context, orgID, emailAddress, to, subject, bodyText string) (string, error)
+	SendMessage(ctx context.Context, orgID, emailAddress, to, subject, bodyText string) (string, error)
 }
 
-func NewEmailDraftHandler(pool *pgxpool.Pool, cli *ai.Client) *EmailDraftHandler {
-	return &EmailDraftHandler{pool: pool, cli: cli}
+type EmailDraftHandler struct {
+	pool      *pgxpool.Pool
+	cli       *ai.Client
+	gmailSvc  GmailDraftCreator
+}
+
+func NewEmailDraftHandler(pool *pgxpool.Pool, cli *ai.Client, gmailSvc GmailDraftCreator) *EmailDraftHandler {
+	return &EmailDraftHandler{pool: pool, cli: cli, gmailSvc: gmailSvc}
 }
 
 type draftEventMeta struct {
@@ -93,5 +99,24 @@ func (h *EmailDraftHandler) Handle(ctx context.Context, orgID, eventID string, a
 		`INSERT INTO drafts (org_id, event_id, recipient, subject, body, status)
 		 VALUES ($1, $2, $3, $4, $5, 'pending_approval')`,
 		orgID, eventID, recipient, subject, body)
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to insert local draft: %w", err)
+	}
+
+	if h.gmailSvc == nil {
+		return nil
+	}
+
+	var gmailAddress string
+	err = h.pool.QueryRow(ctx,
+		`SELECT email_address FROM gmail_watch WHERE org_id = $1`, orgID).Scan(&gmailAddress)
+	if err != nil {
+		return nil
+	}
+
+	if _, err := h.gmailSvc.CreateDraft(ctx, orgID, gmailAddress, recipient, subject, body); err != nil {
+		return fmt.Errorf("failed to create gmail draft: %w", err)
+	}
+
+	return nil
 }
