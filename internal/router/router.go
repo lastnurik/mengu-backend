@@ -44,6 +44,8 @@ type Handlers struct {
 	IntegList           gin.HandlerFunc
 	IntegOAuthURL       gin.HandlerFunc
 	IntegDisconnect     gin.HandlerFunc
+	DocsUpload          gin.HandlerFunc
+	UsersList           gin.HandlerFunc
 }
 
 func New(cfg *config.Config, _ *pgxpool.Pool, logger *slog.Logger, h Handlers) *gin.Engine {
@@ -106,6 +108,10 @@ func New(cfg *config.Config, _ *pgxpool.Pool, logger *slog.Logger, h Handlers) *
 			authed.GET("/integrations", h.IntegList)
 			authed.GET("/integrations/oauth/url", h.IntegOAuthURL)
 			authed.DELETE("/integrations/:provider", h.IntegDisconnect)
+
+			authed.POST("/documents/upload", h.DocsUpload)
+
+			authed.GET("/users", h.UsersList)
 		}
 	}
 

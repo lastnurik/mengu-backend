@@ -7,14 +7,17 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/nurik/Dev/repos/mengu-backend/internal/ai"
 )
 
 type Handler struct {
-	repo *Repository
+	repo    *Repository
+	ai      *ai.Client
+	tempDir string
 }
 
-func NewHandler(repo *Repository) *Handler {
-	return &Handler{repo: repo}
+func NewHandler(repo *Repository, aiClient *ai.Client, tempDir string) *Handler {
+	return &Handler{repo: repo, ai: aiClient, tempDir: tempDir}
 }
 
 type documentListItem struct {

@@ -79,3 +79,23 @@ func (r *Repository) RevokeRefreshToken(ctx context.Context, id string) error {
 		id, now)
 	return err
 }
+
+func (r *Repository) ListByOrgID(ctx context.Context, orgID string) ([]model.User, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, org_id, name, email, password_hash, role, auth_provider, created_at FROM "user" WHERE org_id = $1 ORDER BY created_at ASC`,
+		orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	users := make([]model.User, 0)
+	for rows.Next() {
+		var u model.User
+		if err := rows.Scan(&u.ID, &u.OrgID, &u.Name, &u.Email, &u.PasswordHash, &u.Role, &u.AuthProvider, &u.CreatedAt); err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+	return users, nil
+}

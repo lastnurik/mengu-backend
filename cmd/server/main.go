@@ -47,6 +47,7 @@ import (
 	org "github.com/nurik/Dev/repos/mengu-backend/internal/organization"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/router"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/tasks"
+	"github.com/nurik/Dev/repos/mengu-backend/internal/users"
 	"github.com/nurik/Dev/repos/mengu-backend/internal/webhooks"
 )
 
@@ -125,7 +126,7 @@ func main() {
 	tasksHandler := tasks.NewHandler(tasksRepo)
 
 	docsRepo := documents.NewRepository(pool)
-	docsHandler := documents.NewHandler(docsRepo)
+	docsHandler := documents.NewHandler(docsRepo, aiClient, cfg.TempDir)
 
 	draftsRepo := drafts.NewRepository(pool)
 	draftsHandler := drafts.NewHandler(draftsRepo, pool, gmailAPIClient)
@@ -134,6 +135,9 @@ func main() {
 	gmailHandler := gmail.NewHandler(gmailRepo, gmailAPIClient, emailSvc, logger)
 	gmailRenewal := gmail.NewRenewalService(gmailRepo, gmailAPIClient, logger, 1*time.Hour)
 	go gmailRenewal.Run(ctx)
+
+	usersRepo := users.NewRepository(pool)
+	usersHandler := users.NewHandler(usersRepo)
 
 	integHandler := integration.NewHandler(oauthRepo, cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.OAuthRedirectURI, cfg.FrontendURL)
 	authHandler.SetIntegrationCallback(integHandler.HandleCallback)
@@ -171,6 +175,8 @@ func main() {
 		IntegList:           integHandler.List,
 		IntegOAuthURL:       integHandler.OAuthURL,
 		IntegDisconnect:     integHandler.Disconnect,
+		DocsUpload:          docsHandler.Upload,
+		UsersList:           usersHandler.List,
 	})
 
 	srv := &http.Server{
