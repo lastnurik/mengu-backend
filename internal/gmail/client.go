@@ -112,7 +112,7 @@ func (c *APIClient) GetHistory(ctx context.Context, orgID, emailAddress, startHi
 	var allHistory []*gmail.History
 	pageToken := ""
 	for {
-		call := svc.Users.History.List(emailAddress).StartHistoryId(historyID)
+		call := svc.Users.History.List(emailAddress).StartHistoryId(historyID).HistoryTypes("messageAdded")
 		if pageToken != "" {
 			call = call.PageToken(pageToken)
 		}

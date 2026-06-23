@@ -15,17 +15,16 @@ import (
 	"google.golang.org/api/idtoken"
 )
 
-var gmailPubSubAudience = ""
-
 type Handler struct {
-	watchRepo *Repository
-	emailSvc  *email.Service
-	apiClient *APIClient
-	logger    *slog.Logger
+	watchRepo    *Repository
+	emailSvc     *email.Service
+	apiClient    *APIClient
+	logger       *slog.Logger
+	pubSubAudience string
 }
 
-func NewHandler(watchRepo *Repository, apiClient *APIClient, emailSvc *email.Service, logger *slog.Logger) *Handler {
-	return &Handler{watchRepo: watchRepo, apiClient: apiClient, emailSvc: emailSvc, logger: logger}
+func NewHandler(watchRepo *Repository, apiClient *APIClient, emailSvc *email.Service, logger *slog.Logger, pubSubAudience string) *Handler {
+	return &Handler{watchRepo: watchRepo, apiClient: apiClient, emailSvc: emailSvc, logger: logger, pubSubAudience: pubSubAudience}
 }
 
 type pubSubPushBody struct {
@@ -105,7 +104,8 @@ func (h *Handler) Webhook(c *gin.Context) {
 
 	processed := 0
 	for _, record := range historyRecords {
-		for _, msg := range record.Messages {
+		for _, added := range record.MessagesAdded {
+			msg := added.Message
 			fullMsg, err := h.apiClient.GetMessage(c.Request.Context(), watch.OrgID, data.EmailAddress, msg.Id)
 			if err != nil {
 				h.logger.Error("gmail webhook: failed to fetch message", "message_id", msg.Id, "error", err)
@@ -223,7 +223,7 @@ func (h *Handler) verifyGmailJWT(c *gin.Context) error {
 		return fmt.Errorf("invalid Authorization header format")
 	}
 
-	payload, err := idtoken.Validate(c.Request.Context(), parts[1], gmailPubSubAudience)
+	payload, err := idtoken.Validate(c.Request.Context(), parts[1], h.pubSubAudience)
 	if err != nil {
 		return fmt.Errorf("JWT validation failed: %w", err)
 	}

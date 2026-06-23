@@ -23,6 +23,7 @@ type Config struct {
 	GmailTopicName         string
 	GmailSubscriptionName  string
 	GmailServiceAccount    string
+	GmailWebhookAudience   string
 	Port                   string
 	TempDir                string
 	WorkerPollInterval     time.Duration
@@ -56,6 +57,7 @@ func Load() *Config {
 		GmailTopicName:        getEnv("GMAIL_TOPIC_NAME", ""),
 		GmailSubscriptionName: getEnv("GMAIL_SUBSCRIPTION_NAME", ""),
 		GmailServiceAccount:   getEnv("GMAIL_SERVICE_ACCOUNT", ""),
+		GmailWebhookAudience:  getEnv("GMAIL_WEBHOOK_AUDIENCE", ""),
 		Port:                  getEnv("PORT", "8080"),
 		TempDir:               getEnv("TEMP_DIR", "/tmp/mengu"),
 		WorkerPollInterval:    getDuration("WORKER_POLL_INTERVAL", 5*time.Second),

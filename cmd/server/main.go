@@ -132,7 +132,7 @@ func main() {
 	draftsHandler := drafts.NewHandler(draftsRepo, pool, gmailAPIClient)
 
 	gmailRepo := gmail.NewRepository(pool)
-	gmailHandler := gmail.NewHandler(gmailRepo, gmailAPIClient, emailSvc, logger)
+	gmailHandler := gmail.NewHandler(gmailRepo, gmailAPIClient, emailSvc, logger, cfg.GmailWebhookAudience)
 	gmailRenewal := gmail.NewRenewalService(gmailRepo, gmailAPIClient, logger, 1*time.Hour)
 	go gmailRenewal.Run(ctx)
 
