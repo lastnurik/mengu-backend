@@ -10,14 +10,17 @@ import (
 	"github.com/nurik/Dev/repos/mengu-backend/internal/oauth"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
+	gmailv1 "google.golang.org/api/gmail/v1"
+	"google.golang.org/api/option"
 )
 
 type Handler struct {
-	oauthRepo      *oauth.Repository
-	googleCID      string
-	googleCS       string
-	oauthRedirect  string
-	frontendURL    string
+	oauthRepo        *oauth.Repository
+	googleCID        string
+	googleCS         string
+	oauthRedirect    string
+	frontendURL      string
+	onGmailConnected func(ctx context.Context, orgID, emailAddress string)
 }
 
 func NewHandler(oauthRepo *oauth.Repository, googleCID, googleCS, oauthRedirect, frontendURL string) *Handler {
@@ -28,6 +31,10 @@ func NewHandler(oauthRepo *oauth.Repository, googleCID, googleCS, oauthRedirect,
 		oauthRedirect: oauthRedirect,
 		frontendURL:   frontendURL,
 	}
+}
+
+func (h *Handler) SetGmailConnectedCallback(fn func(ctx context.Context, orgID, emailAddress string)) {
+	h.onGmailConnected = fn
 }
 
 var providerScopes = map[string][]string{
@@ -171,5 +178,18 @@ func (h *Handler) HandleCallback(ctx context.Context, orgID, provider, code stri
 		ExpiresAt:    token.Expiry,
 	}
 
-	return h.oauthRepo.Upsert(ctx, tok)
+	if err := h.oauthRepo.Upsert(ctx, tok); err != nil {
+		return err
+	}
+
+	if provider == "gmail" && h.onGmailConnected != nil {
+		gmailSvc, err := gmailv1.NewService(ctx, option.WithTokenSource(config.TokenSource(ctx, token)))
+		if err == nil {
+			if profile, err := gmailSvc.Users.GetProfile("me").Do(); err == nil {
+				h.onGmailConnected(ctx, orgID, profile.EmailAddress)
+			}
+		}
+	}
+
+	return nil
 }

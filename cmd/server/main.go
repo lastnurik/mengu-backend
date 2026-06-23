@@ -141,6 +141,29 @@ func main() {
 
 	integHandler := integration.NewHandler(oauthRepo, cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.OAuthRedirectURI, cfg.FrontendURL)
 	authHandler.SetIntegrationCallback(integHandler.HandleCallback)
+	integHandler.SetGmailConnectedCallback(func(ctx context.Context, orgID, emailAddress string) {
+		existing, _ := gmailRepo.GetByOrgID(ctx, orgID)
+		if existing != nil {
+			return
+		}
+		historyID, err := gmailAPIClient.Watch(ctx, orgID, emailAddress)
+		if err != nil {
+			logger.Error("auto-start gmail watch failed", "org_id", orgID, "email", emailAddress, "error", err)
+			return
+		}
+		watch := &gmail.WatchRow{
+			OrgID:        orgID,
+			EmailAddress: emailAddress,
+			HistoryID:    historyID,
+			TopicName:    gmailAPIClient.TopicName(),
+			ExpiresAt:    time.Now().Add(7 * 24 * time.Hour),
+		}
+		if err := gmailRepo.Upsert(ctx, watch); err != nil {
+			logger.Error("auto-start gmail watch save failed", "org_id", orgID, "error", err)
+			return
+		}
+		logger.Info("gmail watch auto-started", "org_id", orgID, "email", emailAddress)
+	})
 
 	healthHandler := router.HealthHandler(pool)
 
