@@ -94,6 +94,21 @@ func (w *Worker) processEvent(ctx context.Context, eventID, orgID, content strin
 		return
 	}
 
+	// Always generate a reply draft regardless of what the LLM decided.
+	hasDraft := false
+	for _, a := range result.Actions {
+		if a.Type == "send_email_draft" {
+			hasDraft = true
+			break
+		}
+	}
+	if !hasDraft {
+		result.Actions = append(result.Actions, ai.Action{
+			Type: "send_email_draft",
+			Data: json.RawMessage(`{"tone":"formal"}`),
+		})
+	}
+
 	actionsJSON, _ := json.Marshal(result.Actions)
 	rawResponse, _ := json.Marshal(result)
 
