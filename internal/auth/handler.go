@@ -208,12 +208,12 @@ func (h *Handler) OAuthCallback(c *gin.Context) {
 
 		if h.integCallback != nil {
 			if err := h.integCallback(c.Request.Context(), orgID, provider, code); err != nil {
-				c.Redirect(http.StatusFound, h.svc.frontendURL+"/login?error=integration_failed")
+				c.Redirect(http.StatusFound, h.svc.frontendURL+"/settings?error=integration_failed&provider="+provider)
 				return
 			}
 		}
 
-		c.Redirect(http.StatusFound, h.svc.frontendURL+"/login?integration="+provider+"&status=connected")
+		c.Redirect(http.StatusFound, h.svc.frontendURL+"/settings?integration="+provider+"&status=connected")
 		return
 	}
 
