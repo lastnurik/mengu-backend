@@ -244,10 +244,67 @@ func (s *Service) handleOAuth(ctx context.Context, code, provider string) (*Toke
 
 	user, err := s.repo.GetByEmail(ctx, info.Email)
 	if err != nil {
-		return nil, fmt.Errorf("no account found for %s, please register first", info.Email)
+		// First time signing in with Google — create org + user automatically.
+		user, err = s.createGoogleUser(ctx, info)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create account: %w", err)
+		}
 	}
 
 	return s.generateTokens(ctx, user)
+}
+
+func (s *Service) createGoogleUser(ctx context.Context, info googleUserInfo) (*model.User, error) {
+	name := info.Name
+	if name == "" {
+		name = strings.Split(info.Email, "@")[0]
+	}
+
+	slug := strings.ToLower(strings.ReplaceAll(name, " ", "-")) + "-" + uuid.New().String()[:8]
+
+	secretBytes := make([]byte, 32)
+	if _, err := rand.Read(secretBytes); err != nil {
+		return nil, fmt.Errorf("failed to generate webhook secret: %w", err)
+	}
+	webhookSecret := "whsec_" + hex.EncodeToString(secretBytes)
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var orgID string
+	var orgCreatedAt time.Time
+	err = tx.QueryRow(ctx,
+		`INSERT INTO organization (name, slug, webhook_secret, plan) VALUES ($1, $2, $3, $4) RETURNING id, created_at`,
+		name+"'s Organization", slug, webhookSecret, "free",
+	).Scan(&orgID, &orgCreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create organization: %w", err)
+	}
+
+	user := &model.User{
+		OrgID:        orgID,
+		Name:         name,
+		Email:        info.Email,
+		PasswordHash: "",
+		Role:         "admin",
+		AuthProvider: "google",
+	}
+	err = tx.QueryRow(ctx,
+		`INSERT INTO "user" (org_id, name, email, password_hash, role, auth_provider) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, created_at`,
+		user.OrgID, user.Name, user.Email, user.PasswordHash, user.Role, user.AuthProvider,
+	).Scan(&user.ID, &user.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create user: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return user, nil
 }
 
 func (s *Service) OAuthMicrosoftLogin(ctx context.Context, code string) (*TokenPair, error) {
