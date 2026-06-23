@@ -120,7 +120,7 @@ func (h *Handler) OAuthURL(c *gin.Context) {
 		Scopes:       scopes,
 	}
 
-	url := config.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.ApprovalForce)
+	url := config.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.SetAuthURLParam("prompt", "consent"))
 	c.JSON(http.StatusOK, gin.H{"url": url})
 }
 
