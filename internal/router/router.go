@@ -38,6 +38,7 @@ type Handlers struct {
 	TasksList           gin.HandlerFunc
 	TasksGet            gin.HandlerFunc
 	TasksUpdate         gin.HandlerFunc
+	DraftsList          gin.HandlerFunc
 	DraftsGet           gin.HandlerFunc
 	DraftsUpdate        gin.HandlerFunc
 	DraftsApprove       gin.HandlerFunc
@@ -101,6 +102,7 @@ func New(cfg *config.Config, _ *pgxpool.Pool, logger *slog.Logger, h Handlers) *
 			authed.GET("/tasks/:id", h.TasksGet)
 			authed.PATCH("/tasks/:id", h.TasksUpdate)
 
+			authed.GET("/drafts", h.DraftsList)
 			authed.GET("/drafts/:id", h.DraftsGet)
 			authed.PATCH("/drafts/:id", h.DraftsUpdate)
 			authed.PATCH("/drafts/:id/approve", h.DraftsApprove)

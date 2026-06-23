@@ -30,6 +30,49 @@ type draftListItem struct {
 	CreatedAt string `json:"created_at" example:"2026-06-10T12:03:00Z"`
 }
 
+// List godoc
+// @Summary      List all drafts
+// @Description  List all AI-generated email drafts for the org with optional status filter and pagination.
+// @Tags         Drafts
+// @Produce      json
+// @Param        status    query  string  false  "Filter by status"
+// @Param        page      query  int     false  "Page number (default 1)"
+// @Param        per_page  query  int     false  "Items per page (default 20)"
+// @Success      200  {object}  object{data=[]draftListItem,total=int,page=int,per_page=int}
+// @Security     Bearer
+// @Router       /drafts [get]
+func (h *Handler) List(c *gin.Context) {
+	orgID := c.GetString("org_id")
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "20"))
+	status := c.Query("status")
+
+	if page < 1 {
+		page = 1
+	}
+	offset := (page - 1) * perPage
+
+	allDrafts, total, err := h.repo.ListAll(c.Request.Context(), orgID, status, perPage, offset)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error", "message": "Failed to list drafts"})
+		return
+	}
+
+	items := make([]draftListItem, 0, len(allDrafts))
+	for _, d := range allDrafts {
+		items = append(items, draftListItem{
+			ID:        d.ID,
+			EventID:   d.EventID,
+			Recipient: d.Recipient,
+			Subject:   d.Subject,
+			Status:    d.Status,
+			CreatedAt: d.CreatedAt.Format(time.RFC3339),
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": items, "total": total, "page": page, "per_page": perPage})
+}
+
 // ListByEvent godoc
 // @Summary      List email drafts for event
 // @Description  List AI-generated email drafts associated with a specific event.

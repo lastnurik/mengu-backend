@@ -74,6 +74,46 @@ func (r *Repository) ListByEventID(ctx context.Context, eventID, orgID, status s
 	return drafts, nil
 }
 
+func (r *Repository) ListAll(ctx context.Context, orgID, status string, limit, offset int) ([]DraftRow, int, error) {
+	var total int
+	if status != "" {
+		if err := r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM drafts WHERE org_id = $1 AND status = $2`, orgID, status).Scan(&total); err != nil {
+			return nil, 0, err
+		}
+	} else {
+		if err := r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM drafts WHERE org_id = $1`, orgID).Scan(&total); err != nil {
+			return nil, 0, err
+		}
+	}
+
+	var rows pgx.Rows
+	var err error
+	const cols = `id, org_id, event_id, recipient, subject, body, status, created_at`
+	if status != "" {
+		rows, err = r.pool.Query(ctx,
+			`SELECT `+cols+` FROM drafts WHERE org_id = $1 AND status = $2 ORDER BY created_at DESC LIMIT $3 OFFSET $4`,
+			orgID, status, limit, offset)
+	} else {
+		rows, err = r.pool.Query(ctx,
+			`SELECT `+cols+` FROM drafts WHERE org_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
+			orgID, limit, offset)
+	}
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	result := make([]DraftRow, 0)
+	for rows.Next() {
+		var d DraftRow
+		if err := rows.Scan(&d.ID, &d.OrgID, &d.EventID, &d.Recipient, &d.Subject, &d.Body, &d.Status, &d.CreatedAt); err != nil {
+			return nil, 0, err
+		}
+		result = append(result, d)
+	}
+	return result, total, nil
+}
+
 func (r *Repository) Update(ctx context.Context, d *DraftRow) error {
 	_, err := r.pool.Exec(ctx,
 		`UPDATE drafts SET recipient = $3, subject = $4, body = $5 WHERE id = $1 AND org_id = $2`,

@@ -188,6 +188,7 @@ func main() {
 		TasksList:           tasksHandler.List,
 		TasksGet:            tasksHandler.Get,
 		TasksUpdate:         tasksHandler.Update,
+		DraftsList:          draftsHandler.List,
 		DraftsGet:           draftsHandler.Get,
 		DraftsUpdate:        draftsHandler.Update,
 		DraftsApprove:       draftsHandler.Approve,
