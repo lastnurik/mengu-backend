@@ -68,6 +68,18 @@ func (c *APIClient) TopicName() string {
 	return c.topicName
 }
 
+func (c *APIClient) GetEmailAddress(ctx context.Context, orgID string) (string, error) {
+	svc, err := c.NewService(ctx, orgID)
+	if err != nil {
+		return "", err
+	}
+	profile, err := svc.Users.GetProfile("me").Do()
+	if err != nil {
+		return "", fmt.Errorf("failed to get gmail profile: %w", err)
+	}
+	return profile.EmailAddress, nil
+}
+
 func (c *APIClient) Watch(ctx context.Context, orgID, emailAddress string) (string, error) {
 	svc, err := c.NewService(ctx, orgID)
 	if err != nil {

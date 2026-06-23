@@ -174,24 +174,16 @@ type WatchResponse struct {
 // @Security     Bearer
 // @Router       /gmail/watch [post]
 func (h *Handler) InitiateWatch(c *gin.Context) {
-	var req WatchRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_payload", "message": "email_address is required"})
-		return
-	}
-
 	orgID := c.GetString("org_id")
 
-	existing, err := h.watchRepo.GetByOrgID(c.Request.Context(), orgID)
-	if err == nil && existing != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "watch_already_active",
-			"message": "A Gmail watch is already active for this organization",
-		})
+	emailAddress, err := h.apiClient.GetEmailAddress(c.Request.Context(), orgID)
+	if err != nil {
+		h.logger.Error("gmail get profile failed", "org_id", orgID, "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "gmail_not_connected", "message": "Connect Gmail first before enabling monitoring: " + err.Error()})
 		return
 	}
 
-	historyID, err := h.apiClient.Watch(c.Request.Context(), orgID, req.EmailAddress)
+	historyID, err := h.apiClient.Watch(c.Request.Context(), orgID, emailAddress)
 	if err != nil {
 		h.logger.Error("gmail API watch failed", "org_id", orgID, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "watch_failed", "message": "Failed to initiate Gmail watch: " + err.Error()})
@@ -201,7 +193,7 @@ func (h *Handler) InitiateWatch(c *gin.Context) {
 	expiresAt := time.Now().Add(7 * 24 * time.Hour)
 	watch := &WatchRow{
 		OrgID:        orgID,
-		EmailAddress: req.EmailAddress,
+		EmailAddress: emailAddress,
 		HistoryID:    historyID,
 		TopicName:    h.apiClient.TopicName(),
 		ExpiresAt:    expiresAt,
@@ -212,9 +204,10 @@ func (h *Handler) InitiateWatch(c *gin.Context) {
 		return
 	}
 
+	h.logger.Info("gmail watch started", "org_id", orgID, "email", emailAddress)
 	c.JSON(http.StatusOK, WatchResponse{
 		Status:       "watch_started",
-		EmailAddress: req.EmailAddress,
+		EmailAddress: emailAddress,
 		ExpiresAt:    expiresAt.Format(time.RFC3339),
 	})
 }

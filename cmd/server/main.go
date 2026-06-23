@@ -142,10 +142,6 @@ func main() {
 	integHandler := integration.NewHandler(oauthRepo, cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.OAuthRedirectURI, cfg.FrontendURL)
 	authHandler.SetIntegrationCallback(integHandler.HandleCallback)
 	integHandler.SetGmailConnectedCallback(func(ctx context.Context, orgID, emailAddress string) {
-		existing, _ := gmailRepo.GetByOrgID(ctx, orgID)
-		if existing != nil {
-			return
-		}
 		historyID, err := gmailAPIClient.Watch(ctx, orgID, emailAddress)
 		if err != nil {
 			logger.Error("auto-start gmail watch failed", "org_id", orgID, "email", emailAddress, "error", err)
