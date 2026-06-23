@@ -87,12 +87,19 @@ Analyze the email below and return a JSON object with:
   - "type": one of "schedule_meeting", "create_task", "analyze_document", "send_email_draft"
   - "data": an object with type-specific fields
 
-For schedule_meeting data: {"title": string, "datetime": ISO8601 string, "participants": []}
+For schedule_meeting data: {"title": string, "datetime": ISO8601 string with UTC offset, "participants": []}
 For create_task data: {"title": string, "assignee_role": "manager"|"employee"}
 For analyze_document data: {"file_name": string}
 For send_email_draft data: {"tone": "formal"|"casual"}
 
-Use the current date and time above to generate absolute ISO8601 datetimes for schedule_meeting actions (e.g., if email says "next Tuesday", calculate the actual date).
+Timezone rules for schedule_meeting datetime:
+- Check the email's "Date:" header for the sender's UTC offset (e.g. "+0500").
+- Times written in the email body (e.g. "at 15:00", "3pm") are in the SENDER'S timezone, not UTC.
+- Output the datetime in ISO8601 with that UTC offset preserved (e.g. "2026-06-23T15:00:00+05:00"), NOT converted to UTC.
+- If no Date header is present and no timezone is mentioned, output the time as-is with +00:00.
+
+Use the current date above to resolve relative dates (e.g. "next Tuesday"). Always include a UTC offset in the datetime field — never output a bare Z unless the sender is explicitly in UTC.
+IMPORTANT: Whenever you include a schedule_meeting or create_task action, you MUST also include a send_email_draft action as the final action — it will be used to send a confirmation reply to the sender.
 
 Return ONLY valid JSON. No explanations, no markdown, no code blocks.
 
