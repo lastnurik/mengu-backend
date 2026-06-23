@@ -20,15 +20,23 @@ func NewMeetingHandler(calClient *calendar.Client) *MeetingHandler {
 
 func (h *MeetingHandler) Handle(ctx context.Context, orgID, eventID string, action ai.Action) error {
 	var data struct {
-		Title    string `json:"title"`
-		Datetime string `json:"datetime"`
-		Duration int    `json:"duration_minutes"`
+		Title         string `json:"title"`
+		MeetingTitle  string `json:"meeting_title"`
+		Summary       string `json:"summary"`
+		Datetime      string `json:"datetime"`
+		Duration      int    `json:"duration_minutes"`
 	}
 	if err := json.Unmarshal(action.Data, &data); err != nil {
 		return fmt.Errorf("invalid meeting data: %w", err)
 	}
 	if data.Title == "" {
-		return fmt.Errorf("meeting title is required")
+		data.Title = data.MeetingTitle
+	}
+	if data.Title == "" {
+		data.Title = data.Summary
+	}
+	if data.Title == "" {
+		return fmt.Errorf("meeting title is required (got: %s)", string(action.Data))
 	}
 	if data.Datetime == "" {
 		return fmt.Errorf("meeting datetime is required")
