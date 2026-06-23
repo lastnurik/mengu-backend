@@ -202,13 +202,15 @@ func ExtractEmailFromMessage(msg *gmail.Message) (sender, subject, body string, 
 	return
 }
 
-func ExtractEmailFromMessageWithAttachments(msg *gmail.Message) (sender, subject, body string, attachments []ExtractedAttachment, err error) {
+func ExtractEmailFromMessageWithAttachments(msg *gmail.Message) (sender, subject, date, body string, attachments []ExtractedAttachment, err error) {
 	for _, header := range msg.Payload.Headers {
 		switch strings.ToLower(header.Name) {
 		case "from":
 			sender = header.Value
 		case "subject":
 			subject = header.Value
+		case "date":
+			date = header.Value
 		}
 	}
 

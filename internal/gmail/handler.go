@@ -112,7 +112,7 @@ func (h *Handler) Webhook(c *gin.Context) {
 				continue
 			}
 
-			sender, subject, body, extractedAtts, err := ExtractEmailFromMessageWithAttachments(fullMsg)
+			sender, subject, dateHeader, body, extractedAtts, err := ExtractEmailFromMessageWithAttachments(fullMsg)
 			if err != nil {
 				h.logger.Error("gmail webhook: failed to extract email fields", "message_id", msg.Id, "error", err)
 				continue
@@ -121,6 +121,10 @@ func (h *Handler) Webhook(c *gin.Context) {
 				h.logger.Warn("gmail webhook: skipping message with missing fields", "message_id", msg.Id)
 				continue
 			}
+
+			// Prepend email headers so the AI sees the Date: field and can
+			// infer the sender's UTC offset for timezone-aware scheduling.
+			content := fmt.Sprintf("From: %s\nSubject: %s\nDate: %s\n\n%s", sender, subject, dateHeader, body)
 
 			var payloadAtts []email.AttachmentPayload
 			for _, a := range extractedAtts {
@@ -132,7 +136,7 @@ func (h *Handler) Webhook(c *gin.Context) {
 				})
 			}
 
-			_, err = h.emailSvc.CreateEventFromEmail(c.Request.Context(), watch.OrgID, "gmail", sender, subject, body, payloadAtts)
+			_, err = h.emailSvc.CreateEventFromEmail(c.Request.Context(), watch.OrgID, "gmail", sender, subject, content, payloadAtts)
 			if err != nil {
 				h.logger.Error("gmail webhook: failed to create event", "message_id", msg.Id, "error", err)
 				continue
