@@ -38,7 +38,11 @@ func (h *Handler) SetGmailConnectedCallback(fn func(ctx context.Context, orgID, 
 }
 
 var providerScopes = map[string][]string{
-	"gmail":    {"https://www.googleapis.com/auth/gmail.readonly"},
+	"gmail": {
+		"https://www.googleapis.com/auth/gmail.readonly",
+		"https://www.googleapis.com/auth/gmail.compose",
+		"https://www.googleapis.com/auth/gmail.send",
+	},
 	"calendar": {"https://www.googleapis.com/auth/calendar.events"},
 }
 
