@@ -36,7 +36,7 @@ func (h *MeetingHandler) Handle(ctx context.Context, orgID, eventID string, acti
 		data.Title = data.Summary
 	}
 	if data.Title == "" {
-		return fmt.Errorf("meeting title is required (got: %s)", string(action.Data))
+		data.Title = "Scheduled Meeting"
 	}
 	if data.Datetime == "" {
 		return fmt.Errorf("meeting datetime is required")
