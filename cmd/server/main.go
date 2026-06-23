@@ -172,6 +172,7 @@ func main() {
 		AuthOAuthCallback:   authHandler.OAuthCallback,
 		AuthOAuthGoogle:     authHandler.OAuthGoogle,
 		AuthOAuthMicro:      authHandler.OAuthMicrosoft,
+		AuthMobileGoogle:    authHandler.MobileGoogleAuth,
 		OrgGet:              orgHandler.Get,
 		OrgUpdate:           orgHandler.Update,
 		WebhookEmail:        webhookHandler.Email,

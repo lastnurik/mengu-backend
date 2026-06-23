@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -143,6 +144,34 @@ func (h *Handler) OAuthGoogle(c *gin.Context) {
 	c.JSON(http.StatusOK, tokens)
 }
 
+// MobileGoogleAuth godoc
+// @Summary      Mobile Google Sign-In
+// @Description  Authenticate via a Google ID token from the mobile Google Sign-In SDK. Returns Mengu JWT tokens as JSON — no redirect needed.
+// @Tags         Authentication
+// @Accept       json
+// @Produce      json
+// @Param        request  body      object{id_token=string}  true  "Google ID token from native Sign-In SDK"
+// @Success      200      {object}  object{access_token=string,refresh_token=string,token_type=string,expires_in=integer}
+// @Failure      400      {object}  object{error=string,message=string}
+// @Router       /auth/mobile/google [post]
+func (h *Handler) MobileGoogleAuth(c *gin.Context) {
+	var req struct {
+		IDToken string `json:"id_token" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_payload", "message": "id_token is required"})
+		return
+	}
+
+	tokens, err := h.svc.OAuthGoogleIDToken(c.Request.Context(), req.IDToken)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "auth_failed", "message": "Google ID token validation failed"})
+		return
+	}
+
+	c.JSON(http.StatusOK, tokens)
+}
+
 // OAuthMicrosoft godoc
 // @Summary      Microsoft OAuth login
 // @Description  Authenticate or register via Microsoft OAuth2 authorization code.
@@ -200,20 +229,34 @@ func (h *Handler) OAuthCallback(c *gin.Context) {
 		return
 	}
 
-	parts := strings.SplitN(state, ":", 3)
+	parts := strings.SplitN(state, ":", 4)
 
-	if len(parts) == 3 && parts[2] == "connect" {
+	if len(parts) >= 3 && parts[2] == "connect" {
 		provider := parts[0]
 		orgID := parts[1]
 
+		// parts[3] (optional) is a URL-encoded mobile deep-link redirect.
+		appRedirect := ""
+		if len(parts) == 4 {
+			appRedirect, _ = url.QueryUnescape(parts[3])
+		}
+
 		if h.integCallback != nil {
 			if err := h.integCallback(c.Request.Context(), orgID, provider, code); err != nil {
-				c.Redirect(http.StatusFound, h.svc.frontendURL+"/settings?error=integration_failed&provider="+provider)
+				target := h.svc.frontendURL + "/settings?error=integration_failed&provider=" + provider
+				if appRedirect != "" {
+					target = appRedirect + "?error=integration_failed&provider=" + provider
+				}
+				c.Redirect(http.StatusFound, target)
 				return
 			}
 		}
 
-		c.Redirect(http.StatusFound, h.svc.frontendURL+"/settings?integration="+provider+"&status=connected")
+		target := h.svc.frontendURL + "/settings?integration=" + provider + "&status=connected"
+		if appRedirect != "" {
+			target = appRedirect + "?integration=" + provider + "&status=connected"
+		}
+		c.Redirect(http.StatusFound, target)
 		return
 	}
 

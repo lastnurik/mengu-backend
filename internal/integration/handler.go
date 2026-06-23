@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -111,6 +112,12 @@ func (h *Handler) OAuthURL(c *gin.Context) {
 
 	orgID := c.GetString("org_id")
 	state := fmt.Sprintf("%s:%s:connect", provider, orgID)
+
+	// Mobile apps can pass app_redirect to receive a deep-link redirect after
+	// connecting (e.g. "mengu://settings?integration=gmail&status=connected").
+	if appRedirect := c.Query("app_redirect"); appRedirect != "" {
+		state = state + ":" + url.QueryEscape(appRedirect)
+	}
 
 	config := &oauth2.Config{
 		ClientID:     h.googleCID,

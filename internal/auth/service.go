@@ -20,6 +20,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
+	"google.golang.org/api/idtoken"
 )
 
 var (
@@ -200,6 +201,37 @@ func (s *Service) OAuthGoogle(ctx context.Context, code string) (*TokenPair, err
 		return nil, errors.New("google OAuth not configured")
 	}
 	return s.handleOAuth(ctx, code, "google")
+}
+
+// OAuthGoogleIDToken validates a Google ID token from mobile Google Sign-In SDK
+// and returns Mengu JWT tokens. Mobile apps should use this instead of the
+// authorization-code flow because native SDKs return an ID token, not an auth code.
+func (s *Service) OAuthGoogleIDToken(ctx context.Context, idToken string) (*TokenPair, error) {
+	if s.googleCID == "" {
+		return nil, errors.New("google OAuth not configured")
+	}
+
+	payload, err := idtoken.Validate(ctx, idToken, s.googleCID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid google id token: %w", err)
+	}
+
+	email, _ := payload.Claims["email"].(string)
+	name, _ := payload.Claims["name"].(string)
+	if email == "" {
+		return nil, errors.New("id token missing email claim")
+	}
+
+	user, err := s.repo.GetByEmail(ctx, email)
+	if err != nil {
+		info := googleUserInfo{Email: email, Name: name, VerifiedEmail: true}
+		user, err = s.createGoogleUser(ctx, info)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create account: %w", err)
+		}
+	}
+
+	return s.generateTokens(ctx, user)
 }
 
 func (s *Service) OAuthMicrosoft(ctx context.Context, code string) (*TokenPair, error) {

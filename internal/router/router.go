@@ -22,6 +22,7 @@ type Handlers struct {
 	AuthOAuthCallback   gin.HandlerFunc
 	AuthOAuthGoogle     gin.HandlerFunc
 	AuthOAuthMicro      gin.HandlerFunc
+	AuthMobileGoogle    gin.HandlerFunc
 	OrgGet              gin.HandlerFunc
 	OrgUpdate           gin.HandlerFunc
 	WebhookEmail        gin.HandlerFunc
@@ -74,6 +75,7 @@ func New(cfg *config.Config, _ *pgxpool.Pool, logger *slog.Logger, h Handlers) *
 			auth.GET("/oauth/callback", h.AuthOAuthCallback)
 			auth.POST("/oauth/google", h.AuthOAuthGoogle)
 			auth.POST("/oauth/microsoft", h.AuthOAuthMicro)
+			auth.POST("/mobile/google", h.AuthMobileGoogle)
 		}
 
 		authed := api.Group("")
