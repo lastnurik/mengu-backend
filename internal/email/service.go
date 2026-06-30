@@ -28,12 +28,14 @@ type WebhookPayload struct {
 }
 
 type AttachmentPayload struct {
-	Filename    string `json:"filename" example:"contract.pdf"`
-	ContentType string `json:"content_type" example:"application/pdf"`
-	Size        int64  `json:"size" example:"102400"`
-	URL         string `json:"url" example:"https://storage.example.com/contract.pdf"`
+	Filename      string `json:"filename" example:"contract.pdf"`
+	ContentType   string `json:"content_type" example:"application/pdf"`
+	Size          int64  `json:"size" example:"102400"`
+	URL           string `json:"url" example:"https://storage.example.com/contract.pdf"`
+	Content       string `json:"content,omitempty" example:"Extracted attachment text"`
+	Data          string `json:"data,omitempty" example:"Raw attachment text"`
+	ContentBase64 string `json:"content_base64,omitempty" example:"base64-encoded attachment data"`
 }
-
 type WebhookResult struct {
 	EventID string `json:"event_id"`
 	Status  string `json:"status"`
