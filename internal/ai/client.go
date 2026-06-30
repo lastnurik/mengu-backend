@@ -12,11 +12,11 @@ import (
 )
 
 type Client struct {
-	apiURL   string
-	apiKey   string
-	model    string
-	timeout  time.Duration
-	httpCli  *http.Client
+	apiURL  string
+	apiKey  string
+	model   string
+	timeout time.Duration
+	httpCli *http.Client
 }
 
 func NewClient(apiURL, apiKey, model string, timeout time.Duration) *Client {
@@ -35,6 +35,20 @@ type AIResult struct {
 	Actions    []Action `json:"actions"`
 }
 
+type EmailAnalysisInput struct {
+	Body        string            `json:"body"`
+	Attachments []EmailAttachment `json:"attachments"`
+}
+
+type EmailAttachment struct {
+	Filename      string `json:"filename"`
+	ContentType   string `json:"content_type,omitempty"`
+	Size          int64  `json:"size,omitempty"`
+	URL           string `json:"url,omitempty"`
+	Content       string `json:"content,omitempty"`
+	Data          string `json:"data,omitempty"`
+	ContentBase64 string `json:"content_base64,omitempty"`
+}
 type Action struct {
 	Type string          `json:"type"`
 	Data json.RawMessage `json:"data"`
@@ -78,9 +92,22 @@ func extractJSON(raw string) string {
 }
 
 func (c *Client) AnalyzeEmail(ctx context.Context, input string) (*AIResult, error) {
+	return c.AnalyzeEmailWithAttachments(ctx, EmailAnalysisInput{Body: input})
+}
+
+func (c *Client) AnalyzeEmailWithAttachments(ctx context.Context, input EmailAnalysisInput) (*AIResult, error) {
+	if input.Attachments == nil {
+		input.Attachments = []EmailAttachment{}
+	}
+
+	payload, err := json.MarshalIndent(input, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal email analysis input: %w", err)
+	}
+
 	now := time.Now().UTC().Format(time.RFC3339)
 	systemPrompt := fmt.Sprintf(`You are an email intent classifier. Current date and time: %s
-Analyze the email below and return a JSON object with:
+Analyze the provided email JSON and return a JSON object with:
 - "intent": a short label describing the email's purpose
 - "confidence": a float between 0.0 and 1.0
 - "actions": an array of action objects. Each action has:
@@ -92,21 +119,34 @@ For create_task data: {"title": string, "assignee_role": "manager"|"employee"}
 For analyze_document data: {"file_name": string}
 For send_email_draft data: {"tone": "formal"|"casual"}
 
+Strict attachment rules:
+- Only include an analyze_document action for a file that is present in the provided attachments array.
+- The analyze_document data.file_name value MUST exactly match one of the provided attachments[].filename values.
+- If the attachments array is empty, or the mentioned file is not present in attachments, do not include analyze_document.
+- Do not infer an attachment exists from phrases like "attached" unless it is listed in attachments.
+
+Strict grounding rules:
+- Never hallucinate. Do not fabricate any information. Only work with what is explicitly provided.
+- Do not make up, assume, or infer names, filenames, dates, participants, requirements, document contents, or actions that are not explicitly present in the email JSON.
+- If required information for an action is missing, omit that action instead of guessing.
+
 Timezone rules for schedule_meeting datetime:
 - Check the email's "Date:" header for the sender's UTC offset (e.g. "+0500").
 - Times written in the email body (e.g. "at 15:00", "3pm") are in the SENDER'S timezone, not UTC.
 - Output the datetime in ISO8601 with that UTC offset preserved (e.g. "2026-06-23T15:00:00+05:00"), NOT converted to UTC.
 - If no Date header is present and no timezone is mentioned, output the time as-is with +00:00.
 
-Use the current date above to resolve relative dates (e.g. "next Tuesday"). Always include a UTC offset in the datetime field — never output a bare Z unless the sender is explicitly in UTC.
-IMPORTANT: Whenever you include a schedule_meeting or create_task action, you MUST also include a send_email_draft action as the final action — it will be used to send a confirmation reply to the sender.
+Use the current date above to resolve relative dates (e.g. "next Tuesday"). Always include a UTC offset in the datetime field; never output a bare Z unless the sender is explicitly in UTC.
+IMPORTANT: Whenever you include a schedule_meeting or create_task action, you MUST also include a send_email_draft action as the final action; it will be used to send a confirmation reply to the sender.
 
 Return ONLY valid JSON. No explanations, no markdown, no code blocks.
 
-Email:
-`, now) + input
+The email body and attachments will be provided together in the next message as JSON.`, now)
 
-	content, err := c.callLLM(ctx, systemPrompt)
+	content, err := c.callLLMWithMessages(ctx, []chatMessage{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: "Email JSON:\n" + string(payload)},
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -131,6 +171,8 @@ func (c *Client) AnalyzeDocument(ctx context.Context, content string) (*Document
 - "summary": a concise 2-3 sentence summary of what the document is about
 - "risks": an array of strings, each describing a potential risk or concern found in the document
 
+Never hallucinate. Do not fabricate any information. Only work with what is explicitly provided in the document text. If the text does not contain enough information for a risk, do not invent one.
+
 Return ONLY valid JSON. No explanations, no markdown, no code blocks.
 
 Document:
@@ -151,6 +193,8 @@ Document:
 func (c *Client) GenerateDraft(ctx context.Context, prompt string) (string, error) {
 	systemPrompt := `Write a professional email reply based on the original email and the actions that were taken. Acknowledge what has been done. Do NOT add information about actions that were not taken. Keep the tone as specified.
 
+Never hallucinate. Do not fabricate any information. Only work with what is explicitly provided.
+
 Return ONLY the email body text. No JSON, no explanations.
 
 ` + prompt
@@ -159,13 +203,16 @@ Return ONLY the email body text. No JSON, no explanations.
 }
 
 func (c *Client) callLLM(ctx context.Context, systemPrompt string) (string, error) {
-	reqBody := chatRequest{
-		Model: c.model,
-		Messages: []chatMessage{
-			{Role: "system", Content: systemPrompt},
-		},
-	}
+	return c.callLLMWithMessages(ctx, []chatMessage{
+		{Role: "system", Content: systemPrompt},
+	})
+}
 
+func (c *Client) callLLMWithMessages(ctx context.Context, messages []chatMessage) (string, error) {
+	reqBody := chatRequest{
+		Model:    c.model,
+		Messages: messages,
+	}
 	body, err := json.Marshal(reqBody)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal request: %w", err)

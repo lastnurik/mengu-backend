@@ -2,8 +2,11 @@ package ai
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -39,6 +42,81 @@ func TestAnalyzeEmailParseResponse(t *testing.T) {
 	}
 	if result.Actions[0].Type != "schedule_meeting" {
 		t.Errorf("expected action type 'schedule_meeting', got '%s'", result.Actions[0].Type)
+	}
+}
+
+func TestAnalyzeEmailWithAttachmentsSendsStructuredPayload(t *testing.T) {
+	var req chatRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("failed to read request body: %v", err)
+		}
+		if err := json.Unmarshal(body, &req); err != nil {
+			t.Fatalf("failed to parse request body: %v", err)
+		}
+
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{
+			"choices": [{
+				"message": {
+					"content": "{\"intent\":\"document_review\",\"confidence\":0.91,\"actions\":[{\"type\":\"analyze_document\",\"data\":{\"file_name\":\"contract.pdf\"}}]}"
+				}
+			}]
+		}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "test-key", "gpt-4", 30*time.Second)
+	_, err := client.AnalyzeEmailWithAttachments(context.Background(), EmailAnalysisInput{
+		Body: "Please review the attached contract.",
+		Attachments: []EmailAttachment{{
+			Filename:    "contract.pdf",
+			ContentType: "application/pdf",
+			Size:        1024,
+			URL:         "https://storage.example.com/contract.pdf",
+			Content:     "Contract states payment is due in 30 days.",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(req.Messages) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(req.Messages))
+	}
+	if req.Messages[0].Role != "system" || req.Messages[1].Role != "user" {
+		t.Fatalf("expected system then user messages, got %#v", req.Messages)
+	}
+
+	systemPrompt := req.Messages[0].Content
+	for _, want := range []string{
+		"Only include an analyze_document action for a file that is present in the provided attachments array.",
+		"Never hallucinate. Do not fabricate any information. Only work with what is explicitly provided.",
+	} {
+		if !strings.Contains(systemPrompt, want) {
+			t.Fatalf("system prompt missing %q", want)
+		}
+	}
+
+	const prefix = "Email JSON:\n"
+	if !strings.HasPrefix(req.Messages[1].Content, prefix) {
+		t.Fatalf("expected user message to contain email JSON prefix, got %q", req.Messages[1].Content)
+	}
+
+	var payload EmailAnalysisInput
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(req.Messages[1].Content, prefix)), &payload); err != nil {
+		t.Fatalf("failed to parse email JSON payload: %v", err)
+	}
+	if payload.Body != "Please review the attached contract." {
+		t.Fatalf("unexpected payload body: %q", payload.Body)
+	}
+	if len(payload.Attachments) != 1 {
+		t.Fatalf("expected 1 attachment, got %d", len(payload.Attachments))
+	}
+	att := payload.Attachments[0]
+	if att.Filename != "contract.pdf" || att.ContentType != "application/pdf" || att.URL == "" || att.Content == "" {
+		t.Fatalf("attachment payload was not preserved: %#v", att)
 	}
 }
 

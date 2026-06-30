@@ -50,15 +50,16 @@ func (w *Worker) processNext(ctx context.Context) {
 	defer tx.Rollback(ctx)
 
 	var id, orgID, rawContent string
+	var metadata json.RawMessage
 
 	err = tx.QueryRow(ctx,
-		`SELECT id, org_id, raw_content
+		`SELECT id, org_id, raw_content, metadata
 		 FROM incoming_events
 		 WHERE status = 'new'
 		 ORDER BY created_at ASC
 		 LIMIT 1
 		 FOR UPDATE SKIP LOCKED`,
-	).Scan(&id, &orgID, &rawContent)
+	).Scan(&id, &orgID, &rawContent, &metadata)
 
 	if err != nil {
 		return
@@ -76,10 +77,10 @@ func (w *Worker) processNext(ctx context.Context) {
 	}
 
 	w.logger.Info("worker: processing event", "event_id", id, "org_id", orgID)
-	w.processEvent(ctx, id, orgID, rawContent)
+	w.processEvent(ctx, id, orgID, rawContent, metadata)
 }
 
-func (w *Worker) processEvent(ctx context.Context, eventID, orgID, content string) {
+func (w *Worker) processEvent(ctx context.Context, eventID, orgID, content string, metadata json.RawMessage) {
 	defer func() {
 		if r := recover(); r != nil {
 			w.logger.Error("worker: panic processing event", "event_id", eventID, "recover", r)
@@ -87,7 +88,12 @@ func (w *Worker) processEvent(ctx context.Context, eventID, orgID, content strin
 		}
 	}()
 
-	result, err := w.aiClient.AnalyzeEmail(ctx, content)
+	attachments := parseEmailAttachments(metadata)
+
+	result, err := w.aiClient.AnalyzeEmailWithAttachments(ctx, ai.EmailAnalysisInput{
+		Body:        content,
+		Attachments: attachments,
+	})
 	if err != nil {
 		w.logger.Error("worker: AI analysis failed", "event_id", eventID, "error", err)
 		w.updateEventStatus(ctx, eventID, orgID, "failed")
@@ -143,4 +149,20 @@ func (w *Worker) updateEventStatus(ctx context.Context, eventID, orgID, status s
 	if err != nil {
 		w.logger.Error("worker: failed to update event status", "event_id", eventID, "error", err)
 	}
+}
+
+func parseEmailAttachments(metadata json.RawMessage) []ai.EmailAttachment {
+	var meta struct {
+		Attachments []ai.EmailAttachment `json:"attachments"`
+	}
+	if len(metadata) == 0 {
+		return []ai.EmailAttachment{}
+	}
+	if err := json.Unmarshal(metadata, &meta); err != nil {
+		return []ai.EmailAttachment{}
+	}
+	if meta.Attachments == nil {
+		return []ai.EmailAttachment{}
+	}
+	return meta.Attachments
 }
